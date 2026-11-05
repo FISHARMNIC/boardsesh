@@ -12,6 +12,8 @@
  * - 1–2 start holds, 1–2 finish holds, 3–30 holds in total.
  */
 
+import modelMeta from './model-meta.generated.json';
+import { CLIMB_GEN_WEIGHTS_BASE64 } from './model-weights.generated';
 import { ClimbTransformer, decodeBase64, loadWeights, type ModelConfig, type TensorEntry } from './transformer';
 
 type ClimbGenMeta = ModelConfig & {
@@ -110,14 +112,10 @@ type LoadedModel = {
 
 let loaded: LoadedModel | null = null;
 
-/** Lazily decodes the ~0.7 MB of weights the first time the screen asks. */
+/** Decodes the ~0.5 MB of weights the first time the screen asks, not at app start. */
 export function loadClimbGenerator(): LoadedModel {
   if (loaded) return loaded;
-  // Required lazily so the weights string is only decoded on this screen.
-  // oxlint-disable-next-line no-require-imports
-  const meta = require('./model-meta.generated.json') as ClimbGenMeta;
-  // oxlint-disable-next-line no-require-imports
-  const { CLIMB_GEN_WEIGHTS_BASE64 } = require('./model-weights.generated') as { CLIMB_GEN_WEIGHTS_BASE64: string };
+  const meta = modelMeta as ClimbGenMeta;
   const weights = loadWeights(decodeBase64(CLIMB_GEN_WEIGHTS_BASE64), meta.tensors);
   const order = meta.placements
     .map(([, x, y], index) => ({ index, x, y }))
