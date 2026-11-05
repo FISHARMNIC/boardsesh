@@ -143,6 +143,8 @@ export default function SettingsLayout() {
         <Stack.Screen name="dev-offline-writes" options={{ title: 'Offline Writes' }} />
         {/* i18n-ignore-next-line — tester-only screen */}
         <Stack.Screen name="sentry-diagnostics" options={{ title: 'Sentry Diagnostics' }} />
+        {/* i18n-ignore-next-line — tester-only screen */}
+        <Stack.Screen name="climb-generator" options={{ title: 'Climb Generator' }} />
         {/* i18n-ignore-next-line — admin-only screen */}
         <Stack.Screen name="outline-editor" options={{ title: 'Hold Outlines' }} />
         {/* i18n-ignore-next-line — admin-only screen */}
