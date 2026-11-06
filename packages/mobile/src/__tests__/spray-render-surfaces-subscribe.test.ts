@@ -37,6 +37,8 @@ const EXEMPT: Record<string, string> = {
     'Subscribes with its own `useSyncExternalStore` over `sprayCacheToken`, and must NOT ask the loader: the wall it draws is an unpublished draft, and `ensureSprayWallLoaded` fetches the published version.',
   'src/providers/bluetooth-provider.tsx': 'LED control. A spray wall has no LEDs, so no wall reaches it.',
   'src/components/ble/DeviceCard.tsx': 'LED control. A spray wall has no LEDs, so no wall reaches it.',
+  'src/components/climb-generator/ClimbGeneratorScreen.tsx':
+    'Kilter Original only: it reads render data for no other board, so no spray wall reaches it.',
 };
 
 function walk(dir: string, files: string[] = []): string[] {

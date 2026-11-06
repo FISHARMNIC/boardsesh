@@ -1,37 +1,47 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { toBoardName } from '@boardsesh/board-config';
+import { useRouter } from 'expo-router';
+import type { BoardName } from '@boardsesh/shared-schema';
 import { BoardImageNative } from '../BoardImageNative';
 import { BleLightbulbButton } from '../ble/BleLightbulbButton';
-import { useCreateClimbNavigation } from '../create-climb/use-create-climb-navigation';
 import { trackBoardConnectTapped } from '../../lib/analytics-board-connect';
 import { getBoardRenderData } from '../../lib/board-details';
-import { useActiveBoard } from '../../lib/graphql/use-active-board';
 import { climbGeneratorTags, generateClimbs, type GeneratedClimb } from '../../lib/climb-generator/generate';
 import { hapticLight } from '../../lib/haptics';
 import { useOptionalBluetoothContext } from '../../providers/bluetooth-provider';
 import { useTheme } from '../../providers/theme-provider';
 
-const KILTER_ORIGINAL_LAYOUT_ID = 1;
+import { KILTER_ORIGINAL_LAYOUT_ID } from './kilter-original';
+
+export type GeneratorBoard = {
+  boardName: BoardName;
+  layoutId: number;
+  sizeId: number;
+  setIds: string;
+  angle: number;
+};
 
 /** "V9–V11", or "V10" when the grader is sure. A V-grade always keeps its number. */
 function gradeRangeLabel(climb: GeneratedClimb): string {
   return climb.lowV === climb.highV ? `V${climb.lowV}` : `V${climb.lowV}–V${climb.highV}`;
 }
 const MAX_V = 15;
+/** Six candidates: a 2-column grid of 3 rows under the board. */
+const RESULT_COUNT = 6;
 
 /**
  * Experimental: generate Kilter climbs on the phone from a grade, an angle and
- * a few keywords, preview them on the board and light them. Tester-only, so
- * the copy is English (i18n-ignored) like the other Developer tools.
+ * a few keywords, preview them on the board and light them, then hand the one
+ * you pick back to the climb editor that opened this screen. Experimental, so
+ * the copy is English (i18n-ignored).
  */
-export function ClimbGeneratorScreen() {
+export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
   const { systemColors, spacing, borderRadius, textStyles } = useTheme();
   const { t: tSettings } = useTranslation('settings');
   const { t: tCommon } = useTranslation('common');
   const { width } = useWindowDimensions();
-  const { data: activeBoard } = useActiveBoard();
+  const router = useRouter();
   const bluetooth = useOptionalBluetoothContext();
 
   const [vGrade, setVGrade] = useState(4);
@@ -42,19 +52,18 @@ export function ClimbGeneratorScreen() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const angle = angleOverride ?? activeBoard?.angle ?? 40;
-  const boardName = toBoardName(activeBoard?.boardType);
-  const supported = boardName === 'kilter' && activeBoard?.layoutId === KILTER_ORIGINAL_LAYOUT_ID;
+  const angle = angleOverride ?? board.angle;
+  const supported = board.boardName === 'kilter' && board.layoutId === KILTER_ORIGINAL_LAYOUT_ID;
 
   const renderData = useMemo(() => {
-    if (!activeBoard || !boardName || !supported) return null;
+    if (!supported) return null;
     return getBoardRenderData({
-      boardName,
-      layoutId: activeBoard.layoutId,
-      sizeId: activeBoard.sizeId,
-      setIds: activeBoard.setIds.split(',').map(Number).filter(Boolean),
+      boardName: board.boardName,
+      layoutId: board.layoutId,
+      sizeId: board.sizeId,
+      setIds: board.setIds.split(',').map(Number).filter(Boolean),
     });
-  }, [activeBoard, boardName, supported]);
+  }, [board.boardName, board.layoutId, board.sizeId, board.setIds, supported]);
 
   const allowedPlacementIds = useMemo(
     () => new Set((renderData?.holdsData ?? []).map((hold) => hold.id)),
@@ -74,7 +83,13 @@ export function ClimbGeneratorScreen() {
     setGenerating(true);
     setError(null);
     try {
-      const climbs = await generateClimbs({ angle, vGrade, tags: selectedTags, allowedPlacementIds });
+      const climbs = await generateClimbs({
+        angle,
+        vGrade,
+        tags: selectedTags,
+        allowedPlacementIds,
+        keep: RESULT_COUNT,
+      });
       setResults(climbs);
       setSelectedIndex(0);
       // i18n-ignore-next-line — tester-only screen
@@ -123,20 +138,26 @@ export function ClimbGeneratorScreen() {
     if (!isConnected) litFramesRef.current = null;
   }, [isConnected]);
 
-  const { openGenerated } = useCreateClimbNavigation();
-  const saveAsClimb = useCallback(() => {
-    if (!selected || !activeBoard || !boardName) return;
+  // Back to the editor that opened this screen, with the chosen holds loaded
+  // as a new climb (the remix path). The editor keeps its earlier draft.
+  const chooseClimb = useCallback(() => {
+    if (!selected) return;
     hapticLight();
-    openGenerated(
-      {
-        frames: selected.frames,
+    router.dismissTo({
+      pathname: '/(tabs)/climbs/create',
+      params: {
+        forkFrames: selected.frames,
         // i18n-ignore-next-line — goes into the climb's own description, which the climber can edit
-        description: `Made with the experimental Boardsesh climb generator, which graded it ${gradeRangeLabel(selected)}.`,
-        characteristics: selectedTags.includes('no-match') ? ['no_match'] : undefined,
+        forkDescription: `Made with the experimental Boardsesh climb generator, which graded it ${gradeRangeLabel(selected)}.`,
+        ...(selectedTags.includes('no-match') ? { forkCharacteristics: JSON.stringify(['no_match']) } : {}),
+        boardName: board.boardName,
+        layoutId: String(board.layoutId),
+        sizeId: String(board.sizeId),
+        setIds: board.setIds,
+        angle: String(angle),
       },
-      { boardName, layoutId: activeBoard.layoutId, sizeId: activeBoard.sizeId, setIds: activeBoard.setIds, angle },
-    );
-  }, [selected, activeBoard, boardName, openGenerated, selectedTags, angle]);
+    });
+  }, [selected, router, selectedTags, board.boardName, board.layoutId, board.sizeId, board.setIds, angle]);
 
   const styles = useMemo(
     () =>
@@ -170,6 +191,17 @@ export function ClimbGeneratorScreen() {
           backgroundColor: systemColors.fill,
         },
         chipSelected: { backgroundColor: systemColors.accent },
+        resultGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: spacing[2] },
+        resultCell: {
+          // Two per row: half the card minus half the column gap.
+          width: '48.5%',
+          paddingVertical: spacing[2],
+          borderRadius: borderRadius.lg,
+          backgroundColor: systemColors.fill,
+          alignItems: 'center',
+        },
+        resultGrade: { ...textStyles.headline, color: systemColors.label },
+        resultDetail: { ...textStyles.footnote, color: systemColors.secondaryLabel },
         chipText: { ...textStyles.subheadline, color: systemColors.label },
         chipTextSelected: { color: '#FFFFFF' },
         primaryButton: {
@@ -194,14 +226,14 @@ export function ClimbGeneratorScreen() {
     [systemColors, spacing, borderRadius, textStyles],
   );
 
-  if (!supported || !renderData || !activeBoard || !boardName) {
+  if (!supported || !renderData) {
     return (
       <ScrollView style={styles.page} contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
         <View style={styles.card}>
           {/* i18n-ignore-next-line — tester-only screen */}
           <Text style={styles.label}>The generator only knows the Kilter Board Original layout so far.</Text>
           {/* i18n-ignore-next-line — tester-only screen */}
-          <Text style={styles.caption}>Switch your active board to a Kilter Original and come back.</Text>
+          <Text style={styles.caption}>Open the climb editor on a Kilter Original to use it.</Text>
         </View>
       </ScrollView>
     );
@@ -214,29 +246,38 @@ export function ClimbGeneratorScreen() {
       <View style={styles.card}>
         <BoardImageNative
           frames={selected?.frames ?? ''}
-          boardName={boardName}
-          layoutId={activeBoard.layoutId}
-          sizeId={activeBoard.sizeId}
-          setIds={activeBoard.setIds}
+          boardName={board.boardName}
+          layoutId={board.layoutId}
+          sizeId={board.sizeId}
+          setIds={board.setIds}
           boardWidth={renderData.boardWidth}
           boardHeight={renderData.boardHeight}
           renderWidth={boardRenderWidth}
           recyclingKey={selected?.frames ?? 'empty'}
         />
         {results.length > 0 ? (
-          <View style={styles.chips}>
-            {results.map((climb, index) => (
-              <Pressable
-                key={climb.frames}
-                onPress={() => setSelectedIndex(index)}
-                style={[styles.chip, index === selectedIndex && styles.chipSelected]}
-              >
-                <Text style={[styles.chipText, index === selectedIndex && styles.chipTextSelected]}>
-                  {/* i18n-ignore-next-line — tester-only screen */}
-                  {`#${index + 1} · ${gradeRangeLabel(climb)} · ${climb.holdCount} holds`}
-                </Text>
-              </Pressable>
-            ))}
+          <View style={styles.resultGrid}>
+            {results.map((climb, index) => {
+              const isSelected = index === selectedIndex;
+              return (
+                <Pressable
+                  key={climb.frames}
+                  onPress={() => setSelectedIndex(index)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  style={[styles.resultCell, isSelected && styles.chipSelected]}
+                >
+                  {/* The range on its own line, so a V-grade is never cut at half width. */}
+                  <Text style={[styles.resultGrade, isSelected && styles.chipTextSelected]}>
+                    {gradeRangeLabel(climb)}
+                  </Text>
+                  <Text style={[styles.resultDetail, isSelected && styles.chipTextSelected]}>
+                    {/* i18n-ignore-next-line — experimental screen */}
+                    {`#${index + 1} · ${climb.holdCount} holds`}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         ) : (
           // i18n-ignore-next-line — tester-only screen
@@ -253,9 +294,9 @@ export function ClimbGeneratorScreen() {
               scanningAccessibilityHint={tSettings('ble.scanning')}
               writingAccessibilityHint={tSettings('ble.writing')}
             />
-            <Pressable onPress={saveAsClimb} style={[styles.secondaryButton, styles.grow]}>
-              {/* i18n-ignore-next-line — tester-only screen */}
-              <Text style={styles.secondaryText}>Save as a climb</Text>
+            <Pressable onPress={chooseClimb} style={[styles.primaryButton, styles.grow]}>
+              {/* i18n-ignore-next-line — experimental screen */}
+              <Text style={styles.primaryText}>Use this climb</Text>
             </Pressable>
           </View>
         ) : null}

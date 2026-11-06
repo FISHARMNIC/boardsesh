@@ -798,6 +798,7 @@
         "setActiveHint": "Ajoute d'abord une prise de départ et une d'arrivée",
         "undo": "Annuler",
         "redo": "Rétablir",
+        "generate": "Générer une voie",
         "newClimb": "Commencer une nouvelle voie",
         "close": "Fermer",
         "closeHint": "Votre brouillon reste sur ce téléphone."

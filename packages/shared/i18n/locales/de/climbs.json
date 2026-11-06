@@ -798,6 +798,7 @@
         "setActiveHint": "Setz zuerst einen Start- und einen Zielgriff",
         "undo": "Rückgängig",
         "redo": "Wiederholen",
+        "generate": "Boulder generieren",
         "newClimb": "Neuen Boulder erstellen",
         "close": "Schließen",
         "closeHint": "Dein Entwurf bleibt auf diesem Handy."

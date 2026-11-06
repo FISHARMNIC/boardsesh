@@ -20,6 +20,7 @@ import { spacing } from '../../theme/tokens';
 import { HoldRoleSheet } from './HoldRoleSheet';
 import { useLostHoldGhosts } from './use-lost-hold-ghosts';
 import { CreateDrawer } from './CreateDrawer';
+import { KILTER_ORIGINAL_LAYOUT_ID } from '../climb-generator/kilter-original';
 import { useCreateClimbScreen, type CreateClimbBoard } from './use-create-climb-screen';
 import { useHoldHeatmap } from '../../lib/graphql/hooks/use-hold-heatmap';
 import { useCatalogQuerySourceState } from '../../lib/offline/use-catalog-query-source';
@@ -59,6 +60,24 @@ export function CreateClimbScreen({
   const { t: tCommon } = useTranslation('common');
   const { systemColors } = useTheme();
   const router = useRouter();
+
+  // The experimental generator writes Kilter Original climbs only, and hands its
+  // holds back as a new climb, so it is offered on a new or remixed climb there.
+  const offersGenerator =
+    board.boardName === 'kilter' && board.layoutId === KILTER_ORIGINAL_LAYOUT_ID && !editClimbUuid;
+  const openGenerator = useCallback(() => {
+    router.push({
+      pathname: '/(tabs)/climbs/generate',
+      params: {
+        boardName: board.boardName,
+        layoutId: String(board.layoutId),
+        sizeId: String(board.sizeId),
+        setIds: board.setIds,
+        angle: String(board.angle),
+      },
+    });
+  }, [router, board.boardName, board.layoutId, board.sizeId, board.setIds, board.angle]);
+  const onOpenGenerator = offersGenerator ? openGenerator : undefined;
   const { openPlayDrawer } = useDrawerHost();
 
   // Swapping the climb under the editor changes the route's params in place
@@ -337,6 +356,7 @@ export function CreateClimbScreen({
         onViewDuplicate={handleViewDuplicate}
         heatmap={heatmap}
         lostHolds={lostHolds}
+        onOpenGenerator={onOpenGenerator}
       />
 
       <HoldRoleSheet

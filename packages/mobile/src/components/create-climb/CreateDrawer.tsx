@@ -70,6 +70,8 @@ type CreateDrawerProps = {
   heatmap?: CreateHeatmap;
   /** Grey rings where a remixed climb's lost holds were. Save waits until they are gone. */
   lostHolds?: LostHoldGhostsState;
+  /** Open the experimental climb generator (omitted → no button). */
+  onOpenGenerator?: () => void;
 };
 
 const NO_STATS: ReadonlyMap<number, HoldStat> = new Map<number, HoldStat>();
@@ -91,6 +93,7 @@ export function CreateDrawer({
   onViewDuplicate,
   heatmap,
   lostHolds,
+  onOpenGenerator,
 }: CreateDrawerProps) {
   const { systemColors } = useTheme();
   const [holdListVisible, setHoldListVisible] = useState(false);
@@ -464,6 +467,7 @@ export function CreateDrawer({
                 heatmapActive={heatmapActive}
                 heatmapBusy={heatmap?.busy ?? false}
                 heatmapLine={heatmapLine}
+                onOpenGenerator={onOpenGenerator}
                 saveBlockedLine={saveBlockedLine}
               />
             </View>

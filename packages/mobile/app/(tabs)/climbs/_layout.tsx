@@ -70,6 +70,16 @@ export default function ClimbsLayout() {
             }}
           />
           <Stack.Screen
+            name="generate"
+            options={{
+              // The experimental climb generator, a modal over the editor's modal.
+              // It holds no paint, so swipe-down may dismiss it.
+              presentation: 'modal',
+              // i18n-ignore-next-line — experimental screen
+              title: 'Climb Generator',
+            }}
+          />
+          <Stack.Screen
             name="holds"
             options={{
               // Full-screen interactive board for the hold-type filter (a pushed route,

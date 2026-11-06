@@ -798,6 +798,7 @@
         "setActiveHint": "Add a start and a finish hold first",
         "undo": "Undo",
         "redo": "Redo",
+        "generate": "Generate a climb",
         "newClimb": "Start a new climb",
         "close": "Close",
         "closeHint": "Your draft stays on this phone."

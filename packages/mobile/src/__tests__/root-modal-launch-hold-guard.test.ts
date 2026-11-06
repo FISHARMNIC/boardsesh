@@ -182,7 +182,10 @@ describe('root modal routes and the launch update gate', () => {
 // URL reaches these two on a cold start and neither is wrapped today. They are
 // pinned so that a NEW nested modal shows up here and gets a decision, rather
 // than being added unseen.
-const KNOWN_UNHELD_NESTED_MODALS = ['(tabs)/climbs/create', '(tabs)/record/summary'];
+// '(tabs)/climbs/generate' (the experimental climb generator) is pushed only by
+// the climb editor's tool row, with the editor's board in its params; no URL
+// opens it, so it can never come up on a cold start.
+const KNOWN_UNHELD_NESTED_MODALS = ['(tabs)/climbs/create', '(tabs)/climbs/generate', '(tabs)/record/summary'];
 
 /** Every `_layout.tsx` under app/ except the root one, as a path relative to app/. */
 const NESTED_LAYOUTS = readdirSync(fileURLToPath(APP_DIR), { recursive: true, encoding: 'utf8' })

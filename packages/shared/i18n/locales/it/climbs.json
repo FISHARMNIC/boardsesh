@@ -798,6 +798,7 @@
         "setActiveHint": "Aggiungi prima una presa di partenza e una di arrivo",
         "undo": "Annulla",
         "redo": "Ripeti",
+        "generate": "Genera un blocco",
         "newClimb": "Inizia un nuovo blocco",
         "close": "Chiudi",
         "closeHint": "La tua bozza resta su questo telefono."

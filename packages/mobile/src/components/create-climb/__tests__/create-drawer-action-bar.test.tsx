@@ -167,6 +167,21 @@ describe('CreateDrawerActionBar', () => {
     expect(container.textContent).not.toContain('mobile.create.save');
   });
 
+  it('puts the climb generator right of the heat, only when the editor offers it', () => {
+    const { toolRow } = renderBar(1, {
+      onToggleHeatmap: vi.fn(),
+      onOpenGenerator: vi.fn(),
+      lightbulb: { connected: false, connecting: false, onToggle: vi.fn() },
+    });
+    const actions = Array.from(toolRow.querySelectorAll('[data-action]')).map((node) =>
+      node.getAttribute('data-action'),
+    );
+    expect(actions).toEqual(['undo', 'redo', 'delete', 'flame', 'generate', 'queue', 'lightbulb']);
+    expect(toolRow.querySelector('[data-action="generate"]')?.getAttribute('data-label')).toBe(
+      'mobile.create.actions.generate',
+    );
+  });
+
   // #5960: the creator's bulb only starts a Bluetooth connect, and a spray wall
   // has no lights, so the drawer passes no `lightbulb` there.
   it('draws the bulb as a 44dp tool beside Set Active on a board with lights', () => {

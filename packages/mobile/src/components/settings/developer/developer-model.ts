@@ -118,16 +118,6 @@ export function buildDeveloperModel(input: DeveloperModelInput): MoreFormModel {
         onPress: () => onNavigate('/settings/sentry-diagnostics'),
       });
     }
-    rows.push({
-      kind: 'nav',
-      key: 'climbGenerator',
-      // i18n-ignore-next-line — experimental tester-only tool
-      label: 'Climb Generator',
-      // i18n-ignore-next-line
-      subtitle: 'Generate Kilter climbs on the phone from a grade and keywords',
-      icon: 'boardLook',
-      onPress: () => onNavigate('/settings/climb-generator'),
-    });
     // Pretend the server is down, so the banner, the per-surface placards and
     // the outbox can all be exercised without unplugging anything.
     rows.push({

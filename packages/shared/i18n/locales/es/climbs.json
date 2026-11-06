@@ -798,6 +798,7 @@
         "setActiveHint": "Marca primero una presa de inicio y una de final",
         "undo": "Deshacer",
         "redo": "Rehacer",
+        "generate": "Generar una vía",
         "newClimb": "Empezar una vía nueva",
         "close": "Cerrar",
         "closeHint": "Tu borrador se queda en este teléfono."

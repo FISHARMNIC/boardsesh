@@ -71,6 +71,8 @@ type CreateDrawerActionBarProps = {
    * which always wins.
    */
   heatmapLine?: ReactNode;
+  /** Open the experimental climb generator; omitted → no button (it only knows Kilter Original). */
+  onOpenGenerator?: () => void;
   /**
    * Why the header's Save is held back right now, when something other than the
    * climb's own holds holds it (the remix editor's grey rings). It takes the
@@ -119,6 +121,7 @@ export const CreateDrawerActionBar = memo(function CreateDrawerActionBar({
   heatmapActive = false,
   heatmapBusy = false,
   heatmapLine = null,
+  onOpenGenerator,
   saveBlockedLine = null,
 }: CreateDrawerActionBarProps) {
   const { t } = useTranslation('climbs');
@@ -264,6 +267,16 @@ export const CreateDrawerActionBar = memo(function CreateDrawerActionBar({
                   : roleLabels[selectedBrush]
                 : undefined
             }
+          />
+        ) : null}
+        {/* Beside the heat: both suggest holds rather than edit them. A seventh
+            44dp tool still fits a 340pt row; it shows only on Kilter Original. */}
+        {onOpenGenerator ? (
+          <ActionButton
+            size="sm"
+            iconName="generate"
+            onPress={onOpenGenerator}
+            accessibilityLabel={t('mobile.create.actions.generate')}
           />
         ) : null}
         {/* Not a play glyph: this pushes the climb into the queue, which lights
