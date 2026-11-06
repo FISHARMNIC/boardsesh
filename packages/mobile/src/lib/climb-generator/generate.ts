@@ -2,8 +2,8 @@
  * Experimental on-device Kilter climb generator.
  *
  * Samples candidate climbs from the tiny transformer (ml/climbgen/train.py),
- * then reranks them with a linear grade scorer trained alongside it, so the
- * climbs shown are the ones whose predicted grade is closest to what was asked.
+ * then grades each with the grader (ml/climbgen/grader.py) and keeps the ones
+ * most likely to really be the requested grade, each with an 80% grade range.
  *
  * Decoding rules the model was trained on, enforced here as hard masks:
  * - holds come out ordered bottom-to-top (then left-to-right), so each new hold
@@ -12,6 +12,8 @@
  * - 1–2 start holds, 1–2 finish holds, 3–30 holds in total.
  */
 
+import graderExport from './grader.generated.json';
+import { ClimbGrader, type GraderExport } from './grader';
 import modelMeta from './model-meta.generated.json';
 import { CLIMB_GEN_WEIGHTS_BASE64 } from './model-weights.generated';
 import { ClimbTransformer, decodeBase64, loadWeights, type ModelConfig, type TensorEntry } from './transformer';
@@ -36,7 +38,6 @@ type ClimbGenMeta = ModelConfig & {
   /** [placementId, x, y] in board units, indexed by model placement index. */
   placements: number[][];
   tensors: TensorEntry[];
-  scorer: { hold: number[][]; angle: number[]; bias: number };
 };
 
 export type GenerateOptions = {
@@ -54,8 +55,13 @@ export type GenerateOptions = {
 export type GeneratedClimb = {
   frames: string;
   holdCount: number;
-  predictedDifficulty: number;
-  predictedV: number;
+  /** The grader's median guess. */
+  medianV: number;
+  /** The grader's 80% range: the true grade should fall inside it 4 times in 5. */
+  lowV: number;
+  highV: number;
+  /** How likely the grader thinks the requested grade is. */
+  targetProbability: number;
 };
 
 const MAX_HOLDS = 30;
@@ -63,49 +69,10 @@ const MIN_HOLDS = 3;
 const ROLE_START = 0;
 const ROLE_FINISH = 2;
 
-// Kilter difficulty id -> V grade (board_difficulty_grades), same table as train.py.
-const V_BY_DIFFICULTY: Record<number, number> = {
-  10: 0,
-  11: 0,
-  12: 0,
-  13: 1,
-  14: 1,
-  15: 2,
-  16: 3,
-  17: 3,
-  18: 4,
-  19: 4,
-  20: 5,
-  21: 5,
-  22: 6,
-  23: 7,
-  24: 8,
-  25: 8,
-  26: 9,
-  27: 10,
-  28: 11,
-  29: 12,
-  30: 13,
-  31: 14,
-  32: 15,
-  33: 16,
-};
-
-export function difficultyToV(difficulty: number): number {
-  const rounded = Math.min(33, Math.max(10, Math.round(difficulty)));
-  return V_BY_DIFFICULTY[rounded];
-}
-
-function targetDifficulty(vGrade: number): number {
-  const ids = Object.entries(V_BY_DIFFICULTY)
-    .filter(([, grade]) => grade === vGrade)
-    .map(([id]) => Number(id));
-  return ids.reduce((sum, id) => sum + id, 0) / ids.length;
-}
-
 type LoadedModel = {
   meta: ClimbGenMeta;
   transformer: ClimbTransformer;
+  grader: ClimbGrader;
   /** Model placement index -> its rank in bottom-to-top, left-to-right order. */
   orderRank: Int32Array;
 };
@@ -124,7 +91,12 @@ export function loadClimbGenerator(): LoadedModel {
   order.forEach((entry, rank) => {
     orderRank[entry.index] = rank;
   });
-  loaded = { meta, transformer: new ClimbTransformer(meta, weights), orderRank };
+  loaded = {
+    meta,
+    transformer: new ClimbTransformer(meta, weights),
+    grader: new ClimbGrader(graderExport as GraderExport, meta.placements),
+    orderRank,
+  };
   return loaded;
 }
 
@@ -208,19 +180,6 @@ function sampleOne(
   return starts >= 1 && finishes >= 1 ? holds : null;
 }
 
-function predictDifficulty(model: LoadedModel, holds: Hold[], angle: number): number {
-  const { meta } = model;
-  const angleIndex = Math.max(0, meta.angles.indexOf(angle));
-  let flat = 0;
-  let slope = 0;
-  for (const { placementIndex, roleIndex } of holds) {
-    const weights = meta.scorer.hold[meta.vocab.holdBase + placementIndex * 4 + roleIndex];
-    flat += weights[0];
-    slope += weights[1];
-  }
-  return meta.scorer.bias + meta.scorer.angle[angleIndex] + flat + ((angle - 40) / 10) * slope;
-}
-
 /** Yields to the event loop between candidates so the screen keeps painting. */
 export async function generateClimbs(options: GenerateOptions): Promise<GeneratedClimb[]> {
   const model = loadClimbGenerator();
@@ -249,9 +208,8 @@ export async function generateClimbs(options: GenerateOptions): Promise<Generate
     allowedPlacement[index] = options.allowedPlacementIds.has(placementId) ? 1 : 0;
   });
 
-  const target = targetDifficulty(vGrade);
   const seen = new Set<string>();
-  const results: (GeneratedClimb & { distance: number })[] = [];
+  const results: GeneratedClimb[] = [];
   for (let attempt = 0; attempt < candidates; attempt += 1) {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     const holds = sampleOne(model, prefix, allowedPlacement, temperature, random);
@@ -261,17 +219,16 @@ export async function generateClimbs(options: GenerateOptions): Promise<Generate
       .join('');
     if (seen.has(frames)) continue;
     seen.add(frames);
-    const predictedDifficulty = predictDifficulty(model, holds, angle);
+    const estimate = model.grader.grade(holds, angle);
     results.push({
       frames,
       holdCount: holds.length,
-      predictedDifficulty,
-      predictedV: difficultyToV(predictedDifficulty),
-      distance: Math.abs(predictedDifficulty - target),
+      medianV: estimate.medianV,
+      lowV: estimate.lowV,
+      highV: estimate.highV,
+      targetProbability: estimate.probabilities[vGrade],
     });
   }
-  return results
-    .sort((first, second) => first.distance - second.distance)
-    .slice(0, keep)
-    .map(({ distance: _distance, ...climb }) => climb);
+  // Most likely to really be the requested grade first.
+  return results.sort((first, second) => second.targetProbability - first.targetProbability).slice(0, keep);
 }

@@ -1,14 +1,12 @@
 """Prototype: a tiny on-device Kilter climb generator.
 
-Trains two models from the public Boardsesh snapshots
-(docs/board-snapshots-dataset.md):
+Trains a small decoder-only transformer, from the public Boardsesh snapshots
+(docs/board-snapshots-dataset.md), that writes a climb hold by hold,
+conditioned on [angle, V-grade, keyword tags]. Hard grades are rare, so V8+
+climbs are repeated during training (see hard_repeats). The grader that ranks
+the samples on the phone is trained separately by grader.py.
 
-1. A small decoder-only transformer that writes a climb hold by hold,
-   conditioned on [angle, V-grade, keyword tags].
-2. A linear grade scorer (sum of per-hold weights + angle terms) the phone
-   uses to rerank sampled candidates toward the requested grade.
-
-Both are exported into packages/mobile/src/lib/climb-generator/
+It is exported into packages/mobile/src/lib/climb-generator/
 (model-meta.generated.json + model-weights.generated.ts). The transformer
 is written by hand (pre-LN, GELU, tied embeddings) so the TypeScript port in
 packages/mobile/src/lib/climb-generator/transformer.ts can mirror it exactly.
@@ -209,6 +207,17 @@ def encode(example: Example, order_key, tag_keep: float) -> list[int]:
     return tokens
 
 
+def hard_repeats(v_grade: int) -> int:
+    """How many times a climb appears per epoch: hard grades are rare in the data."""
+    if v_grade >= 12:
+        return 4
+    if v_grade >= 10:
+        return 3
+    if v_grade >= 8:
+        return 2
+    return 1
+
+
 # ---------------------------------------------------------------- model
 class Block(nn.Module):
     def __init__(self, dim, heads, ff):
@@ -247,22 +256,6 @@ class ClimbGen(nn.Module):
         return self.ln_f(x) @ self.tok.weight.T
 
 
-class GradeScorer(nn.Module):
-    """difficulty ≈ bias + angle_bias + Σ w_hold + (angle-40)/10 · Σ u_hold."""
-
-    def __init__(self, hold_vocab):
-        super().__init__()
-        self.hold = nn.Embedding(hold_vocab, 2, padding_idx=0)
-        nn.init.zeros_(self.hold.weight)
-        self.angle = nn.Embedding(len(ANGLES), 1)
-        self.bias = nn.Parameter(torch.tensor([18.0]))
-
-    def forward(self, holds, angle_idx, angle_value):
-        hold_sum = self.hold(holds).sum(dim=1)
-        slope = (angle_value - 40.0) / 10.0
-        return self.bias + self.angle(angle_idx).squeeze(-1) + hold_sum[:, 0] + slope * hold_sum[:, 1]
-
-
 # ---------------------------------------------------------------- export
 def quantize_rows(tensor: torch.Tensor):
     matrix = tensor.detach().float().cpu().reshape(tensor.shape[0], -1) if tensor.dim() > 1 else tensor.detach().float().cpu().reshape(1, -1)
@@ -271,7 +264,7 @@ def quantize_rows(tensor: torch.Tensor):
     return quantized.numpy(), scales.numpy().astype(np.float32)
 
 
-def export(model: ClimbGen, scorer: GradeScorer, config: dict, placement_ids, coords, out: Path):
+def export(model: ClimbGen, config: dict, placement_ids, coords, out: Path):
     tensors = []
     blob = bytearray()
     for name, param in model.state_dict().items():
@@ -288,11 +281,6 @@ def export(model: ClimbGen, scorer: GradeScorer, config: dict, placement_ids, co
             blob += param.detach().float().cpu().numpy().astype(np.float32).tobytes()
         tensors.append(entry)
 
-    scorer_state = {
-        "hold": scorer.hold.weight.detach().cpu().numpy().round(4).tolist(),
-        "angle": scorer.angle.weight.detach().cpu().squeeze(-1).numpy().round(4).tolist(),
-        "bias": round(float(scorer.bias.item()), 4),
-    }
     meta = {
         **config,
         "board": BOARD,
@@ -305,7 +293,6 @@ def export(model: ClimbGen, scorer: GradeScorer, config: dict, placement_ids, co
                   "gradeBase": GRADE_BASE, "tagBase": TAG_BASE, "holdBase": HOLD_BASE},
         "placements": [[pid, *coords[pid]] for pid in placement_ids],
         "tensors": tensors,
-        "scorer": scorer_state,
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "model-meta.generated.json").write_text(json.dumps(meta, separators=(",", ":")) + "\n")
@@ -349,6 +336,8 @@ def main():
     parser.add_argument("--dim", type=int, default=96)
     parser.add_argument("--layers", type=int, default=3)
     parser.add_argument("--heads", type=int, default=4)
+    parser.add_argument("--hard-oversample", action=argparse.BooleanOptionalAction, default=True,
+                        help="repeat V8+ climbs (x2 V8-9, x3 V10-11, x4 V12+) so hard grades are not drowned out")
     args = parser.parse_args()
 
     random.seed(0)
@@ -373,15 +362,17 @@ def main():
     model = ClimbGen(vocab, args.dim, args.layers, args.heads, args.dim * 3, max_len).to(device)
     print(f"params {sum(p.numel() for p in model.parameters()):,}")
     optimizer = torch.optim.AdamW(model.parameters(), lr=2e-3, weight_decay=0.05)
-    steps = args.epochs * math.ceil(len(train) / 256)
+    lm_train = [e for e in train for _ in range(hard_repeats(e.v_grade) if args.hard_oversample else 1)]
+    print(f"generator training rows: {len(lm_train)} ({len(train)} before oversampling hard grades)")
+    steps = args.epochs * math.ceil(len(lm_train) / 256)
     schedule = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-3, total_steps=steps, pct_start=0.05)
 
     val_seqs = [encode(e, order_key, tag_keep=1.0) for e in val]
     for epoch in range(args.epochs):
         model.train()
-        random.shuffle(train)
+        random.shuffle(lm_train)
         # Drop tags sometimes so "no keywords" is a valid prompt too.
-        seqs = [encode(e, order_key, tag_keep=0.75) for e in train]
+        seqs = [encode(e, order_key, tag_keep=0.75) for e in lm_train]
         total = 0.0
         for count, tokens in enumerate(batches(seqs, 256, device), 1):
             loss = lm_loss(model, tokens)
@@ -396,38 +387,8 @@ def main():
             val_loss = np.mean([lm_loss(model, t).item() for t in batches(val_seqs, 512, device)])
         print(f"epoch {epoch + 1}: train {total / count:.3f} val {val_loss:.3f}")
 
-    # Grade scorer.
-    scorer = GradeScorer(vocab).to(device)
-    scorer_opt = torch.optim.Adam(scorer.parameters(), lr=0.02)
-
-    def scorer_batches(rows, size):
-        for start in range(0, len(rows), size):
-            chunk = rows[start : start + size]
-            width = max(len(e.holds) for e in chunk)
-            holds = torch.zeros((len(chunk), width), dtype=torch.long)
-            for row, e in enumerate(chunk):
-                holds[row, : len(e.holds)] = torch.tensor([HOLD_BASE + p * 4 + r for p, r in e.holds])
-            angle_idx = torch.tensor([ANGLES.index(e.angle) for e in chunk])
-            angle_value = torch.tensor([float(e.angle) for e in chunk])
-            target = torch.tensor([e.difficulty for e in chunk])
-            yield holds.to(device), angle_idx.to(device), angle_value.to(device), target.to(device)
-
-    for epoch in range(8):
-        random.shuffle(train)
-        for holds, angle_idx, angle_value, target in scorer_batches(train, 1024):
-            loss = F.smooth_l1_loss(scorer(holds, angle_idx, angle_value), target) + 1e-4 * scorer.hold.weight.pow(2).sum()
-            scorer_opt.zero_grad()
-            loss.backward()
-            scorer_opt.step()
-    with torch.no_grad():
-        errors = [
-            (scorer(h, a, v) - t).abs().cpu() for h, a, v, t in scorer_batches(val, 4096)
-        ]
-        mae = torch.cat(errors).mean().item()
-    print(f"grade scorer val MAE {mae:.2f} difficulty units (~{mae / 2:.2f} V-grades)")
-
-    torch.save({"model": model.state_dict(), "scorer": scorer.state_dict(), "config": config}, args.checkpoint)
-    export(model, scorer, config, placement_ids, coords, args.out)
+    torch.save({"model": model.state_dict(), "config": config}, args.checkpoint)
+    export(model, config, placement_ids, coords, args.out)
 
 
 if __name__ == "__main__":

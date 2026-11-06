@@ -1,0 +1,4 @@
+# Local training environment, data and outputs (rebuildable, large).
+.venv/
+data/
+out/

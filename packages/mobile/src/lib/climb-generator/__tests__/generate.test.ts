@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import meta from '../model-meta.generated.json';
-import { difficultyToV, generateClimbs } from '../generate';
+import { generateClimbs } from '../generate';
 
 function seededRandom(seed: number): () => number {
   let state = seed;
@@ -44,12 +44,10 @@ describe('generateClimbs', () => {
       expect(starts).toBeLessThanOrEqual(2);
       expect(finishes).toBeGreaterThanOrEqual(1);
       expect(finishes).toBeLessThanOrEqual(2);
+      expect(climb.lowV).toBeLessThanOrEqual(climb.medianV);
+      expect(climb.medianV).toBeLessThanOrEqual(climb.highV);
+      expect(climb.targetProbability).toBeGreaterThanOrEqual(0);
+      expect(climb.targetProbability).toBeLessThanOrEqual(1);
     }
-  });
-
-  it('maps Kilter difficulty ids to V grades', () => {
-    expect(difficultyToV(16)).toBe(3);
-    expect(difficultyToV(22.4)).toBe(6);
-    expect(difficultyToV(2)).toBe(0);
   });
 });

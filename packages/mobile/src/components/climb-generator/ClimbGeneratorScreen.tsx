@@ -10,6 +10,11 @@ import { useOptionalBluetoothContext } from '../../providers/bluetooth-provider'
 import { useTheme } from '../../providers/theme-provider';
 
 const KILTER_ORIGINAL_LAYOUT_ID = 1;
+
+/** "V9–V11", or "V10" when the grader is sure. A V-grade always keeps its number. */
+function gradeRangeLabel(climb: GeneratedClimb): string {
+  return climb.lowV === climb.highV ? `V${climb.lowV}` : `V${climb.lowV}–V${climb.highV}`;
+}
 const MAX_V = 15;
 
 /**
@@ -177,7 +182,7 @@ export function ClimbGeneratorScreen() {
               >
                 <Text style={[styles.chipText, index === selectedIndex && styles.chipTextSelected]}>
                   {/* i18n-ignore-next-line — tester-only screen */}
-                  {`#${index + 1} · V${climb.predictedV} · ${climb.holdCount} holds`}
+                  {`#${index + 1} · ${gradeRangeLabel(climb)} · ${climb.holdCount} holds`}
                 </Text>
               </Pressable>
             ))}
@@ -247,7 +252,10 @@ export function ClimbGeneratorScreen() {
           })}
         </View>
         {/* i18n-ignore-next-line — tester-only screen */}
-        <Text style={styles.caption}>Experimental model trained on public Kilter climbs. Grades are its guess.</Text>
+        <Text style={styles.caption}>
+          Experimental model trained on public Kilter climbs. Each grade is a range the true grade should fall in 4
+          times in 5.
+        </Text>
       </View>
 
       <Pressable onPress={generate} disabled={generating} style={[styles.primaryButton, generating && styles.disabled]}>
