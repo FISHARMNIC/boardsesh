@@ -134,7 +134,30 @@ export function useCreateClimbNavigation({
     [navigateToCreate],
   );
 
+  /**
+   * A climb that exists only on the phone (the experimental climb generator),
+   * opened in the editor like a remix with no parent: same holds and rules, an
+   * empty name for the climber to choose, and the editor's own save flow.
+   */
+  const openGenerated = useCallback(
+    (
+      generated: { frames: string; description: string; characteristics?: string[] },
+      board: BoardConfig,
+      onActionAccepted?: () => void,
+    ) =>
+      navigateToCreate(
+        {
+          forkFrames: generated.frames,
+          forkDescription: generated.description,
+          ...(generated.characteristics ? { forkCharacteristics: JSON.stringify(generated.characteristics) } : {}),
+          ...boardParams(board),
+        },
+        onActionAccepted,
+      ),
+    [navigateToCreate],
+  );
+
   // Only the semantic wrappers are exposed. A caller cannot hand-roll params or bypass
   // the one-action / source-sheet / player-transition ordering above.
-  return { openRemix, openEdit, resetActionGuard };
+  return { openRemix, openEdit, openGenerated, resetActionGuard };
 }

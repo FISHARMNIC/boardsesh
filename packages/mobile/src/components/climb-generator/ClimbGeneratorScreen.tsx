@@ -1,7 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { toBoardName } from '@boardsesh/board-config';
 import { BoardImageNative } from '../BoardImageNative';
+import { BleLightbulbButton } from '../ble/BleLightbulbButton';
+import { useCreateClimbNavigation } from '../create-climb/use-create-climb-navigation';
+import { trackBoardConnectTapped } from '../../lib/analytics-board-connect';
 import { getBoardRenderData } from '../../lib/board-details';
 import { useActiveBoard } from '../../lib/graphql/use-active-board';
 import { climbGeneratorTags, generateClimbs, type GeneratedClimb } from '../../lib/climb-generator/generate';
@@ -24,6 +28,8 @@ const MAX_V = 15;
  */
 export function ClimbGeneratorScreen() {
   const { systemColors, spacing, borderRadius, textStyles } = useTheme();
+  const { t: tSettings } = useTranslation('settings');
+  const { t: tCommon } = useTranslation('common');
   const { width } = useWindowDimensions();
   const { data: activeBoard } = useActiveBoard();
   const bluetooth = useOptionalBluetoothContext();
@@ -81,13 +87,56 @@ export function ClimbGeneratorScreen() {
   }, [angle, vGrade, selectedTags, allowedPlacementIds]);
 
   const selected = results[selectedIndex] ?? null;
-  const canLight = (bluetooth?.isConnected ?? false) && selected !== null;
-  const lightIt = useCallback(() => {
-    if (!bluetooth || !selected) return;
+  const isConnected = bluetooth?.isConnected ?? false;
+  const lightFrames = useCallback(
+    (frames: string) => {
+      if (!bluetooth) return;
+      bluetooth.invalidateWallState();
+      void bluetooth.sendFramesToBoard(frames);
+    },
+    [bluetooth],
+  );
+
+  // Like the main climb view's bulb: a tap connects and lights the climb on
+  // screen, or re-lights it when already connected; a long press disconnects.
+  const onBulbPress = useCallback(() => {
+    if (!bluetooth || bluetooth.loading) return;
+    if (bluetooth.isConnected) {
+      if (selected) lightFrames(selected.frames);
+      return;
+    }
+    trackBoardConnectTapped({ surface: 'climb_generator', boardName: bluetooth.boardName, reconnect: false });
+    void bluetooth.connect(selected?.frames ?? '');
+  }, [bluetooth, selected, lightFrames]);
+  const onBulbLongPress = useCallback(() => {
+    if (bluetooth?.isConnected) void bluetooth.disconnect();
+  }, [bluetooth]);
+
+  // While connected, the wall follows the candidate on screen.
+  const litFramesRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isConnected || !selected || litFramesRef.current === selected.frames) return;
+    litFramesRef.current = selected.frames;
+    lightFrames(selected.frames);
+  }, [isConnected, selected, lightFrames]);
+  useEffect(() => {
+    if (!isConnected) litFramesRef.current = null;
+  }, [isConnected]);
+
+  const { openGenerated } = useCreateClimbNavigation();
+  const saveAsClimb = useCallback(() => {
+    if (!selected || !activeBoard || !boardName) return;
     hapticLight();
-    bluetooth.invalidateWallState();
-    void bluetooth.sendFramesToBoard(selected.frames);
-  }, [bluetooth, selected]);
+    openGenerated(
+      {
+        frames: selected.frames,
+        // i18n-ignore-next-line — goes into the climb's own description, which the climber can edit
+        description: `Made with the experimental Boardsesh climb generator, which graded it ${gradeRangeLabel(selected)}.`,
+        characteristics: selectedTags.includes('no-match') ? ['no_match'] : undefined,
+      },
+      { boardName, layoutId: activeBoard.layoutId, sizeId: activeBoard.sizeId, setIds: activeBoard.setIds, angle },
+    );
+  }, [selected, activeBoard, boardName, openGenerated, selectedTags, angle]);
 
   const styles = useMemo(
     () =>
@@ -138,6 +187,8 @@ export function ClimbGeneratorScreen() {
         primaryText: { ...textStyles.headline, color: '#FFFFFF' },
         secondaryText: { ...textStyles.headline, color: systemColors.label },
         disabled: { opacity: 0.4 },
+        actions: { flexDirection: 'row', alignItems: 'center', gap: spacing[3] },
+        grow: { flex: 1 },
         error: { ...textStyles.footnote, color: systemColors.error },
       }),
     [systemColors, spacing, borderRadius, textStyles],
@@ -192,16 +243,21 @@ export function ClimbGeneratorScreen() {
           <Text style={styles.caption}>Pick a grade and some keywords, then generate.</Text>
         )}
         {selected ? (
-          <Pressable
-            onPress={lightIt}
-            disabled={!canLight}
-            style={[styles.secondaryButton, !canLight && styles.disabled]}
-          >
-            <Text style={styles.secondaryText}>
+          <View style={styles.actions}>
+            <BleLightbulbButton
+              isConnected={isConnected}
+              isScanning={bluetooth?.loading ?? false}
+              onPress={onBulbPress}
+              onLongPress={onBulbLongPress}
+              accessibilityLabel={isConnected ? tCommon('lightControl.disconnect') : tSettings('ble.connectBoard')}
+              scanningAccessibilityHint={tSettings('ble.scanning')}
+              writingAccessibilityHint={tSettings('ble.writing')}
+            />
+            <Pressable onPress={saveAsClimb} style={[styles.secondaryButton, styles.grow]}>
               {/* i18n-ignore-next-line — tester-only screen */}
-              {canLight ? 'Light it on the board' : 'Connect a board to light it'}
-            </Text>
-          </Pressable>
+              <Text style={styles.secondaryText}>Save as a climb</Text>
+            </Pressable>
+          </View>
         ) : null}
       </View>
 

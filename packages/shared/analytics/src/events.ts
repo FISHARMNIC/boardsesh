@@ -510,7 +510,8 @@ export const SHARED_EVENTS = {
   // connect-step test's card, #5654 PR 7; its play-view pill sent
   // 'first_connect_pill' until #7000) | 'put_on_wall' (the play view's Put on
   // the wall on a preview with no board connected: sets the climb, then
-  // connects). 'play_drawer' is the player's Connect board since #7000. `reconnect` is true when a remembered board is targeted (silent
+  // connects) | 'climb_generator' (the experimental climb generator's bulb,
+  // Settings › Developer). 'play_drawer' is the player's Connect board since #7000. `reconnect` is true when a remembered board is targeted (silent
   // auto-select), false when the tap opens the device picker. `placement`
   // ('regular' | 'inline') is set only by the iOS 26 tab-bar accessory platter's
   // bulb (open or collapsed), which shares 'board_control_indicator' with the

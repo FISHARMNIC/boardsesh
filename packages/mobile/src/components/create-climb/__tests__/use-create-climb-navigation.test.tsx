@@ -137,6 +137,38 @@ describe('useCreateClimbNavigation serialized handoff', () => {
     expect(router.push).toHaveBeenCalledTimes(2);
   });
 
+  it('opens a generated climb as a parentless remix with no name and the given rules', () => {
+    const { result } = renderHook(() => useCreateClimbNavigation());
+
+    result.current.openGenerated(
+      { frames: 'p1129r12p1300r14', description: 'Made with the generator', characteristics: ['no_match'] },
+      board,
+    );
+
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: '/(tabs)/climbs/create',
+      params: {
+        forkFrames: 'p1129r12p1300r14',
+        forkDescription: 'Made with the generator',
+        forkCharacteristics: '["no_match"]',
+        boardName: 'kilter',
+        layoutId: '8',
+        sizeId: '17',
+        setIds: '26,27',
+        angle: '40',
+      },
+    });
+  });
+
+  it('leaves the rules param out of a generated climb without any', () => {
+    const { result } = renderHook(() => useCreateClimbNavigation());
+
+    result.current.openGenerated({ frames: 'p1129r12p1300r14', description: '' }, board);
+
+    expect(router.push.mock.calls[0][0].params).not.toHaveProperty('forkCharacteristics');
+    expect(router.push.mock.calls[0][0].params).not.toHaveProperty('forkName');
+  });
+
   it('pushes immediately when no native source or player callback was injected (including iPad panes)', () => {
     const { result } = renderHook(() => useCreateClimbNavigation());
 

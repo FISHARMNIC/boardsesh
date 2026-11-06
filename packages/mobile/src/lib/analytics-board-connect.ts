@@ -31,7 +31,10 @@ export type BoardConnectSurface =
   // long-press opens the controls sheet. It never connects (it only shows while
   // you hold the board, and a tap that would connect is dropped), but it shares
   // the bulbs' press path.
-  | 'header_pill';
+  | 'header_pill'
+  // The experimental climb generator's bulb (Settings › Developer): connects and
+  // lights the generated climb on screen.
+  | 'climb_generator';
 
 /**
  * Where the iOS 26 tab-bar accessory platter sits: open above the bar, or
