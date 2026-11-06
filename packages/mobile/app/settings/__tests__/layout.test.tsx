@@ -172,6 +172,7 @@ const SETTINGS_PAGES = [
   'feature-flags',
   'dev-offline-writes',
   'sentry-diagnostics',
+  'climb-generator',
   'outline-editor',
   'outline-canvas',
   'delete-account',
