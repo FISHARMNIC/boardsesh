@@ -140,7 +140,7 @@ export function ClimbGeneratorScreen() {
 
   if (!supported || !renderData || !activeBoard || !boardName) {
     return (
-      <ScrollView style={styles.page} contentContainerStyle={styles.content}>
+      <ScrollView style={styles.page} contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
         <View style={styles.card}>
           {/* i18n-ignore-next-line — tester-only screen */}
           <Text style={styles.label}>The generator only knows the Kilter Board Original layout so far.</Text>
@@ -154,7 +154,7 @@ export function ClimbGeneratorScreen() {
   const boardRenderWidth = width - spacing[4] * 2 - spacing[3] * 2;
 
   return (
-    <ScrollView style={styles.page} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.page} contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
       <View style={styles.card}>
         <BoardImageNative
           frames={selected?.frames ?? ''}
