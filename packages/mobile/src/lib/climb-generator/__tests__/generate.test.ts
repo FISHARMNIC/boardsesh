@@ -59,6 +59,9 @@ describe('generateClimbs', () => {
 describe('climbGeneratorModelKey', () => {
   it('names the model for a supported board layout and nothing for the rest', () => {
     expect(climbGeneratorModelKey('kilter', 1)).toBe('kilter-1');
+    expect(climbGeneratorModelKey('tension', 9)).toBe('tension-9');
+    expect(climbGeneratorModelKey('tension', 10)).toBe('tension-10');
+    expect(climbGeneratorModelKey('tension', 11)).toBe('tension-11');
     expect(climbGeneratorModelKey('kilter', 8)).toBeNull();
     expect(climbGeneratorModelKey('moonboard', 1)).toBeNull();
   });

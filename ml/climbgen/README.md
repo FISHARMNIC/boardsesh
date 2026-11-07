@@ -1,4 +1,4 @@
-# climbgen: experimental on-device Kilter climb generator
+# climbgen: experimental on-device climb generator (Kilter and Tension)
 
 A prototype. A small transformer (about 470k parameters, `train.py`) writes a Kilter Board Original climb hold by hold,
 given an angle, a V-grade and optional keywords. A separate grader (about 27k parameters, `grader.py`) gives each
@@ -6,7 +6,23 @@ sample a probability per V-grade; the phone keeps the candidates most likely to 
 with a grade range. Both run in plain TypeScript on the phone (`packages/mobile/src/lib/climb-generator/`), with no
 native module, so the feature ships over the air.
 
-Open it from Settings › Developer › Climb Generator with a Kilter Original as the active board.
+Open it from the climb editor: the wand button right of the heat toggle, on a new climb on one of the boards below.
+
+## Boards
+
+One generator and one grader per board layout (`--model <board>-<layout>` in both scripts; settings in `BOARD_MODELS`
+in `train.py`). Each layout gets its own model because the models learn which hold sits where: TB2 Mirror and Spray
+share 639 of 690 holes but bolt different holds into them.
+
+| Model | Board | Training rows | Grader error | Range covers V0–V7 / V8–V11 |
+|---|---|---|---|---|
+| `kilter-1` | Kilter Original (12x12) | 126k | 0.99 V | 84–86% / 80% |
+| `tension-9` | Tension Board 1 | 40k | 0.96 V | 82–86% / 79% |
+| `tension-10` | Tension Board 2 Mirror | 24k | 1.05 V | 84–86% / 79% |
+| `tension-11` | Tension Board 2 Spray | 19k | 1.08 V | 82% / 73% |
+
+The Tension generators use `--dim 64 --epochs 40` (smaller data) and keep the epoch with the best validation loss.
+Keyword tags are sparse on Tension (a couple of hundred climbs each), so they steer less there.
 
 ## Data
 
@@ -43,6 +59,7 @@ python3 -m venv .venv && .venv/bin/pip install torch numpy
 .venv/bin/python -I -u grader.py --climbs data/kilter1.db --catalog data/catalog.db --out out
 ```
 
-The generator takes about 6 minutes on an Apple Silicon GPU, the grader about 3. Check `out/` (the grader prints its
-test report), then copy `model-meta.generated.json`, `model-weights.generated.ts` and `grader.generated.json` into
-`packages/mobile/src/lib/climb-generator/`. `grader.py --eval-only` re-scores a saved grader without retraining.
+The generator takes about 6 minutes on an Apple Silicon GPU, the grader about 3 (Tension boards: 2–4 each). Check
+`out/` (the grader prints its test report), then copy `model-meta.generated.json`, `model-weights.generated.ts` and
+`grader.generated.json` into `packages/mobile/src/lib/climb-generator/models/<model>/` and list the model in
+`models/index.ts` and `models/supported.ts`. `out/train-tension.sh` trains all three Tension layouts in a row. `grader.py --eval-only` re-scores a saved grader without retraining.
