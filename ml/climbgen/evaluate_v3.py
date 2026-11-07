@@ -55,6 +55,7 @@ def jaccard(a, b) -> float:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--label", required=True)
+    parser.add_argument("--model", default="kilter-1")
     parser.add_argument("--writer", type=Path, required=True)
     parser.add_argument("--rank-grader", type=Path, required=True)
     parser.add_argument("--rank-grader-json", type=Path, required=True)
@@ -78,7 +79,7 @@ def main():
     parser.add_argument("--out", type=Path, default=None, help="write the scorecard JSON here")
     args = parser.parse_args()
 
-    train.configure("kilter-1")
+    train.configure(args.model)
     dev = pipeline.device()
     torch.manual_seed(0)
     placement_ids, coords = train.load_placements(args.catalog)

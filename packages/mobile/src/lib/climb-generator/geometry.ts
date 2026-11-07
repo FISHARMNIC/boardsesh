@@ -1,6 +1,6 @@
 /**
  * Geometry of a climb's hand moves (mirrors ml/climbgen/features.py), in board
- * units: inches on Kilter Original. Used by v3 as a safety net: a candidate is
+ * units: inches (Kilter and Tension share a 4-inch grid). Used by v3 as a safety net: a candidate is
  * dropped only if it goes beyond the 99th percentile of real classic climbs in its
  * grade band and angle band.
  */

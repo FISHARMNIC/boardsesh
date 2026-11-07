@@ -17,7 +17,7 @@ import { hapticLight } from '../../lib/haptics';
 import { useOptionalBluetoothContext } from '../../providers/bluetooth-provider';
 import { useTheme } from '../../providers/theme-provider';
 
-import { climbGeneratorModelKey } from '../../lib/climb-generator/models/supported';
+import { climbGeneratorModelKey, hasClimbGeneratorV3 } from '../../lib/climb-generator/models/supported';
 
 export type GeneratorBoard = {
   boardName: BoardName;
@@ -50,7 +50,7 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
   const bluetooth = useOptionalBluetoothContext();
 
   const [vGrade, setVGrade] = useState(4);
-  // v3 is on trial on Kilter Original only; elsewhere the screen always runs v2.
+  // v3 is on trial on Kilter Original and Tension Board 1 only; elsewhere the screen always runs v2.
   const [chosenVersion, setChosenVersion] = useState<ClimbGeneratorVersion>('v3');
   const [angleOverride, setAngleOverride] = useState<number | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -61,7 +61,7 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
 
   const angle = angleOverride ?? board.angle;
   const modelKey = climbGeneratorModelKey(board.boardName, board.layoutId);
-  const offersV3 = modelKey === 'kilter-1';
+  const offersV3 = hasClimbGeneratorV3(modelKey);
   const version: ClimbGeneratorVersion = offersV3 ? chosenVersion : 'v2';
   const supported = modelKey !== null;
 
@@ -79,8 +79,8 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
     () => new Set((renderData?.holdsData ?? []).map((hold) => hold.id)),
     [renderData],
   );
-  // The board's model: in the app for Kilter Original, downloaded once for the
-  // rest. `attempt` bumps to retry after a failed download.
+  // The board's model, downloaded once and then kept on the phone. `attempt`
+  // bumps to retry after a failed download.
   const [modelState, setModelState] = useState<
     { status: 'loading' } | { status: 'ready'; tags: string[] } | { status: 'error'; message: string }
   >({ status: 'loading' });

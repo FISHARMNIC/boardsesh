@@ -24,3 +24,10 @@ export function climbGeneratorModelKey(boardName: string, layoutId: number): Cli
   const key = `${boardName}-${layoutId}`;
   return (CLIMB_GENERATOR_MODEL_KEYS as readonly string[]).includes(key) ? (key as ClimbGeneratorModelKey) : null;
 }
+
+/** Layouts that also have a v3 model (v3/manifest.json); the generator offers a v2/v3 switch on these. */
+const V3_MODEL_KEYS: readonly ClimbGeneratorModelKey[] = ['kilter-1', 'tension-9'];
+
+export function hasClimbGeneratorV3(modelKey: ClimbGeneratorModelKey | null): boolean {
+  return modelKey !== null && V3_MODEL_KEYS.includes(modelKey);
+}

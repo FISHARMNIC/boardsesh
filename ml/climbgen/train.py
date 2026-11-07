@@ -42,7 +42,10 @@ BOARD_MODELS = {
     "kilter-1": {"board": "kilter", "layout": 1, "roles": [12, 13, 14, 15],
                  "edges": {"left": 0, "right": 144, "bottom": 0, "top": 156}},
     "tension-9": {"board": "tension", "layout": 9, "roles": [1, 2, 3, 4],
-                  "edges": {"left": 0, "right": 96, "bottom": 0, "top": 156}},
+                  "edges": {"left": 0, "right": 96, "bottom": 0, "top": 156},
+                  # TB1 climbers rate generously (median 4.5 stars vs Kilter's 3.25); these
+                  # pick the same shares as Kilter's: ~35% classic, ~5% low-rated.
+                  "stars": {"prior": 4.5, "classic": 4.6, "low": 3.6}},
     "tension-10": {"board": "tension", "layout": 10, "roles": [5, 6, 7, 8],
                    "edges": {"left": -92, "right": 92, "bottom": 0, "top": 144}},
     "tension-11": {"board": "tension", "layout": 11, "roles": [5, 6, 7, 8],
@@ -68,10 +71,12 @@ ROLES = BOARD_MODELS[MODEL_KEY]["roles"]
 
 def configure(model_key: str) -> None:
     """Point the loaders at one board layout (see BOARD_MODELS)."""
-    global MODEL_KEY, BOARD, LAYOUT_ID, EDGES, ROLES
+    global MODEL_KEY, BOARD, LAYOUT_ID, EDGES, ROLES, CLASSIC_PRIOR_STARS, CLASSIC_MIN_STARS, LOW_RATED_STARS
     config = BOARD_MODELS[model_key]
     MODEL_KEY, BOARD, LAYOUT_ID = model_key, config["board"], config["layout"]
     EDGES, ROLES = config["edges"], config["roles"]
+    stars = config.get("stars", DEFAULT_STARS)
+    CLASSIC_PRIOR_STARS, CLASSIC_MIN_STARS, LOW_RATED_STARS = stars["prior"], stars["classic"], stars["low"]
 
 ANGLES = list(range(0, 75, 5))
 # Kilter difficulty id -> V number, from board_difficulty_grades.
@@ -113,9 +118,12 @@ QUALITY_KEEP = 0.8  # the quality token is dropped 20% of the time in training
 
 # "Classic": a star average shrunk toward 2.5 by 10 imaginary ascents, so a climb
 # needs real evidence (many ascents, or very high stars) to count.
-CLASSIC_PRIOR_STARS = 2.5
+# Boards rate on different scales, so BOARD_MODELS may override these ("stars").
+DEFAULT_STARS = {"prior": 2.5, "classic": 3.0, "low": 2.25}  # Kilter Original
+CLASSIC_PRIOR_STARS = DEFAULT_STARS["prior"]
 CLASSIC_PRIOR_WEIGHT = 10
-CLASSIC_MIN_STARS = 3.0  # top ~35% of climb-angle rows
+CLASSIC_MIN_STARS = DEFAULT_STARS["classic"]  # top ~35% of climb-angle rows on Kilter Original
+LOW_RATED_STARS = DEFAULT_STARS["low"]  # the critic's real "bad" climbs: below this, with 10+ ascents
 
 
 def set_quality_tokens(enabled: bool) -> None:

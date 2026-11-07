@@ -4,7 +4,7 @@ Positives: real classic climbs (train.is_classic). Negatives:
 - climbs sampled from the v3 writer with the app's exact decoding rules and
   sampling settings, at the positives' grade/angle mix, with near-copies of real
   climbs (Jaccard >= 0.6) removed so the same climb is never labelled both ways
-- real climbs rated below 2.25 stars with at least 10 ascents
+- real climbs rated below the board's low-rated cutoff (train.LOW_RATED_STARS; 2.25 on Kilter) with at least 10 ascents
 
 Splits by climb as everywhere else (crc32 % 20: 0 test, 1 calibration, rest
 train); generated negatives for each split come from separate sampling runs.
@@ -19,6 +19,8 @@ different writer, because a critic is a discriminator for one writer.
 
 Usage (from ml/climbgen/):
   .venv/bin/python -I -u critic.py --writer data/v3-writer.pt --out out/v3/kilter-1-critic
+  .venv/bin/python -I -u critic.py --model tension-9 --climbs data/tension9.db --writer data/v3-tension-9-writer.pt \
+    --out out/v3/tension-9-critic --checkpoint data/v3-tension-9-critic.pt
 """
 
 from __future__ import annotations
@@ -42,7 +44,9 @@ import grader as grader_module  # noqa: E402
 import pipeline  # noqa: E402
 import train  # noqa: E402
 
-TEMPERATURE, TOP_P = 0.85, 0.9
+# Negatives are sampled the way the app samples (V3_PIPELINE in generate.ts). The
+# Kilter Original critic was trained at 0.85 / 0.9, before the app moved to 0.9 / 1.0.
+TEMPERATURE, TOP_P = 0.9, 1.0
 
 
 def split_of(uuid: str) -> str:
@@ -50,7 +54,8 @@ def split_of(uuid: str) -> str:
     return "test" if bucket == 0 else "calibration" if bucket == 1 else "train"
 
 
-def generate_negatives(writer, positives, count, rank, placements, known, dev, seed):
+def generate_negatives(writer, positives, count, rank, placements, known, dev, seed,
+                       temperature=TEMPERATURE, top_p=TOP_P):
     """`count` generated climbs at the positives' (angle, grade) mix, minus near-copies of real climbs."""
     rng = random.Random(seed)
     generator = torch.Generator(device="cpu").manual_seed(seed)
@@ -59,7 +64,7 @@ def generate_negatives(writer, positives, count, rank, placements, known, dev, s
     while len(out) < count:
         picks = [rng.choice(positives) for _ in range(1024)]
         prefixes = [pipeline.prefix(p.angle, p.v_grade, 1) for p in picks]
-        climbs = pipeline.sample(writer, prefixes, rank, allowed, len(train.ROLES), TEMPERATURE, TOP_P, dev,
+        climbs = pipeline.sample(writer, prefixes, rank, allowed, len(train.ROLES), temperature, top_p, dev,
                                  generator if dev == "cpu" else None)
         for pick, climb in zip(picks, climbs):
             if climb is not None and known.max_jaccard(climb) < 0.6:
@@ -153,7 +158,10 @@ def export(model, temperature: float, writer_sha256: str, out: Path):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model", default="kilter-1")
     parser.add_argument("--writer", type=Path, required=True)
+    parser.add_argument("--temperature", type=float, default=TEMPERATURE)
+    parser.add_argument("--top-p", type=float, default=TOP_P)
     parser.add_argument("--writer-weights", type=Path, default=None,
                         help="the exported model-weights.generated.ts the app downloads; its decoded blob's sha256 "
                              "pairs critic and writer. Defaults to <writer export dir>/model-weights.generated.ts")
@@ -165,7 +173,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=15)
     args = parser.parse_args()
 
-    train.configure("kilter-1")
+    train.configure(args.model)
     dev = pipeline.device()
     random.seed(2)
     torch.manual_seed(2)
@@ -187,12 +195,12 @@ def main():
         bucket = splits[split_of(example.climb_uuid)]
         if example.classic:
             bucket["pos"].append(example)
-        elif example.quality is not None and example.quality < 2.25 and example.ascents >= 10:
+        elif example.quality is not None and example.quality < train.LOW_RATED_STARS and example.ascents >= 10:
             bucket["low"].append(example)
     sizes = {"train": args.generated, "calibration": args.generated // 18, "test": args.generated // 18}
     for seed, (name, bucket) in enumerate(splits.items()):
         bucket["gen"] = generate_negatives(writer, bucket["pos"], sizes[name], rank, len(placement_ids), known, dev,
-                                           seed + 10)
+                                           seed + 10, args.temperature, args.top_p)
         print(f"{name}: {len(bucket['pos'])} classic, {len(bucket['gen'])} generated, {len(bucket['low'])} low-rated")
 
     train_rows = [(e, 1.0) for e in splits["train"]["pos"]] + [(e, 0.0) for e in splits["train"]["gen"]] + \
@@ -251,7 +259,7 @@ def main():
     gate = critic_gen - base_gen_auc >= 0.05
     print(f"gate (critic beats baseline by >= 0.05 on generated): {'PASS' if gate else 'FAIL'}")
 
-    weights_ts = args.writer_weights or (args.writer.parent.parent / "out/v3/kilter-1/model-weights.generated.ts")
+    weights_ts = args.writer_weights or (args.writer.parent.parent / f"out/v3/{args.model}/model-weights.generated.ts")
     if not weights_ts.exists():
         raise SystemExit(f"need the writer's exported weights to pair the critic: {weights_ts}")
     import re

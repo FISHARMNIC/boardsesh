@@ -14,7 +14,7 @@
  *
  * Two versions, picked per call:
  * - v2: the models at the root of the models URL; ranks by grade alone.
- * - v3 (Kilter Original only, for now): a writer that can be asked for "classic"
+ * - v3 (Kilter Original and Tension Board 1, for now): a writer that can be asked for "classic"
  *   climbs, top-p sampling, then a geometry safety net, near-copy rejection
  *   against every known climb, and ranking that also weighs a realism critic
  *   (ml/climbgen/critic.py, ml/climbgen/V3.md).
