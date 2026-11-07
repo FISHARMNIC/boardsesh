@@ -11,7 +11,8 @@ type CreateClimbKeyBoard = {
 /**
  * React `key` for the mounted CreateClimbScreen.
  *
- * Keyed on the authoring mode (so edit/fork/new transitions remount with a fresh
+ * Keyed on the authoring mode and, for a fork, its seed holds (so edit/fork/new
+ * transitions, and a new seed handed to an open editor, remount with a fresh
  * undo history) AND on the board's hold-identity tuple (boardName/layoutId/
  * sizeId/setIds). The hook seeds its holds reducer once at mount and never re-sanitizes
  * the painted holds when the board changes, so a board switch under a bare-open
@@ -34,8 +35,12 @@ export function createClimbScreenKey(
   board: CreateClimbKeyBoard,
   forkFrames?: string,
 ): string {
+  // A fork carries its seed holds: the climb generator hands a second climb to
+  // the SAME open editor (dismissTo), and a bare 'fork' key kept the first one
+  // mounted. A route's fork params never change while you paint, so this never
+  // remounts mid-edit.
   const authoringIdentity =
-    editClimbUuid && editClimbUuid !== 'new' ? `edit:${editClimbUuid}` : forkFrames ? 'fork' : 'new';
+    editClimbUuid && editClimbUuid !== 'new' ? `edit:${editClimbUuid}` : forkFrames ? `fork:${forkFrames}` : 'new';
   const spray = sprayIdentityToken(board.boardName, board.layoutId);
   return `${authoringIdentity}:${board.boardName}:${board.layoutId}:${board.sizeId}${spray}:${board.setIds}`;
 }

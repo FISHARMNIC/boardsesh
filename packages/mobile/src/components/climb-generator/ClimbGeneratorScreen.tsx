@@ -305,6 +305,21 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
             </Pressable>
           </View>
         ) : null}
+        {selected ? (
+          // Same grade, angle and keywords: six fresh candidates in place of these.
+          <Pressable
+            onPress={generate}
+            disabled={generating}
+            style={[styles.secondaryButton, generating && styles.disabled]}
+          >
+            {generating ? (
+              <ActivityIndicator color={systemColors.label} />
+            ) : (
+              // i18n-ignore-next-line — experimental screen
+              <Text style={styles.secondaryText}>Generate new climbs</Text>
+            )}
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.card}>

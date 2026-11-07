@@ -36,4 +36,10 @@ describe('createClimbScreenKey', () => {
     expect(createClimbScreenKey(undefined, kilter, 'p1r12')).not.toBe(createClimbScreenKey(undefined, kilter));
     expect(createClimbScreenKey(undefined, kilter, 'p1r12')).toBe(createClimbScreenKey(undefined, kilter, 'p1r12'));
   });
+
+  it('remounts when an open editor is handed a different climb to fork (the climb generator)', () => {
+    expect(createClimbScreenKey(undefined, kilter, 'p1r12p9r14')).not.toBe(
+      createClimbScreenKey(undefined, kilter, 'p2r12p8r14'),
+    );
+  });
 });
