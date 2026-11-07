@@ -95,11 +95,13 @@ export type GeneratedClimb = {
  * critic's realism counts against the grade, and the near-copy threshold.
  */
 export const V3_PIPELINE = {
-  temperature: 0.85,
-  topP: 0.9,
+  // Top-p 0.9 at 0.85 pulled the geometry away from real classics; plain 0.9 kept it close.
+  temperature: 0.9,
+  topP: 1,
   candidates: 48,
   timeBudgetMs: 3000,
-  criticWeight: 0.5,
+  // 0.5 cost 4-5 points of grade accuracy at V7-V9; 0.25 keeps V7 level with v2.
+  criticWeight: 0.25,
   criticLogFloor: -5,
   copyThreshold: 0.8,
   /** Ask for "classic" up to this grade; above it the classic data is too thin and copies rise. */
