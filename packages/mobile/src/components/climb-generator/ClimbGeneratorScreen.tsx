@@ -305,21 +305,24 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
             </Pressable>
           </View>
         ) : null}
-        {selected ? (
-          // Same grade, angle and keywords: six fresh candidates in place of these.
-          <Pressable
-            onPress={generate}
-            disabled={generating}
-            style={[styles.secondaryButton, generating && styles.disabled]}
-          >
-            {generating ? (
-              <ActivityIndicator color={systemColors.label} />
-            ) : (
-              // i18n-ignore-next-line — experimental screen
-              <Text style={styles.secondaryText}>Generate new climbs</Text>
-            )}
-          </Pressable>
-        ) : null}
+        {/* The one generate button, always under the board. Before the first run
+            it is the screen's main action; after it, "Use this climb" is, and this
+            reruns with the same grade, angle and keywords. */}
+        <Pressable
+          onPress={generate}
+          disabled={generating}
+          style={[selected ? styles.secondaryButton : styles.primaryButton, generating && styles.disabled]}
+        >
+          {generating ? (
+            <ActivityIndicator color={selected ? systemColors.label : '#FFFFFF'} />
+          ) : (
+            <Text style={selected ? styles.secondaryText : styles.primaryText}>
+              {/* i18n-ignore-next-line — experimental screen */}
+              {selected ? 'Generate new climbs' : 'Generate climbs'}
+            </Text>
+          )}
+        </Pressable>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
 
       <View style={styles.card}>
@@ -374,16 +377,6 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
           times in 5.
         </Text>
       </View>
-
-      <Pressable onPress={generate} disabled={generating} style={[styles.primaryButton, generating && styles.disabled]}>
-        {generating ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          // i18n-ignore-next-line — tester-only screen
-          <Text style={styles.primaryText}>Generate climbs</Text>
-        )}
-      </Pressable>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
     </ScrollView>
   );
 }
