@@ -14,7 +14,8 @@ export type GraderExport = {
   numGrades: number;
   coverage: number;
   maxAngle: number;
-  edges: { right: number; top: number };
+  /** The wall the grader was trained on; `left`/`bottom` absent on older exports mean 0. */
+  edges: { left?: number; right: number; bottom?: number; top: number };
   temperature: number;
   logitCorrection: number[];
   tensors: Record<string, GraderTensor>;
@@ -90,8 +91,10 @@ export class ClimbGrader {
         this.roleEmbedding.subarray(roleIndex * this.roleDim, (roleIndex + 1) * this.roleDim),
         this.placementDim,
       );
-      input[this.placementDim + this.roleDim] = x / edges.right;
-      input[this.placementDim + this.roleDim + 1] = y / edges.top;
+      const left = edges.left ?? 0;
+      const bottom = edges.bottom ?? 0;
+      input[this.placementDim + this.roleDim] = (x - left) / (edges.right - left);
+      input[this.placementDim + this.roleDim + 1] = (y - bottom) / (edges.top - bottom);
       input[this.placementDim + this.roleDim + 2] = angleFeature;
       const first = dense(input, this.weights.node1.weight, this.weights.node1.bias, true);
       const node = dense(first, this.weights.node2.weight, this.weights.node2.bias, true);

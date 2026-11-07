@@ -34,12 +34,34 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# One model per board layout: each learns that wall's own holds. Roles are the
+# board's placement-role ids in the order start, hand, finish, foot. Edges are
+# the wall size whose holds the model may use (the largest for Tension; Kilter
+# keeps 12x12 with kickboard, the size most of its climbs are set on).
+BOARD_MODELS = {
+    "kilter-1": {"board": "kilter", "layout": 1, "roles": [12, 13, 14, 15],
+                 "edges": {"left": 0, "right": 144, "bottom": 0, "top": 156}},
+    "tension-9": {"board": "tension", "layout": 9, "roles": [1, 2, 3, 4],
+                  "edges": {"left": 0, "right": 96, "bottom": 0, "top": 156}},
+    "tension-10": {"board": "tension", "layout": 10, "roles": [5, 6, 7, 8],
+                   "edges": {"left": -92, "right": 92, "bottom": 0, "top": 144}},
+    "tension-11": {"board": "tension", "layout": 11, "roles": [5, 6, 7, 8],
+                   "edges": {"left": -92, "right": 92, "bottom": 0, "top": 144}},
+}
+MODEL_KEY = "kilter-1"
 BOARD = "kilter"
 LAYOUT_ID = 1
-# 12x12 with kickboard: the size most Kilter climbs are set on.
-EDGES = {"left": 0, "right": 144, "bottom": 0, "top": 156}
-ROLES = [12, 13, 14, 15]  # start, hand, finish, foot
-ROLE_START, ROLE_HAND, ROLE_FINISH, ROLE_FOOT = ROLES
+EDGES = BOARD_MODELS[MODEL_KEY]["edges"]
+ROLES = BOARD_MODELS[MODEL_KEY]["roles"]
+
+
+def configure(model_key: str) -> None:
+    """Point the loaders at one board layout (see BOARD_MODELS)."""
+    global MODEL_KEY, BOARD, LAYOUT_ID, EDGES, ROLES
+    config = BOARD_MODELS[model_key]
+    MODEL_KEY, BOARD, LAYOUT_ID = model_key, config["board"], config["layout"]
+    EDGES, ROLES = config["edges"], config["roles"]
+
 ANGLES = list(range(0, 75, 5))
 # Kilter difficulty id -> V number, from board_difficulty_grades.
 V_BY_DIFFICULTY = {
@@ -283,6 +305,7 @@ def export(model: ClimbGen, config: dict, placement_ids, coords, out: Path):
 
     meta = {
         **config,
+        "key": MODEL_KEY,
         "board": BOARD,
         "layoutId": LAYOUT_ID,
         "roles": ROLES,
@@ -328,6 +351,8 @@ def lm_loss(model, tokens):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=sorted(BOARD_MODELS), default="kilter-1",
+                        help="which board layout to train (see BOARD_MODELS)")
     parser.add_argument("--climbs", type=Path, required=True)
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--out", type=Path, default=Path("packages/mobile/src/lib/climb-generator"))
@@ -340,6 +365,7 @@ def main():
                         help="repeat V8+ climbs (x2 V8-9, x3 V10-11, x4 V12+) so hard grades are not drowned out")
     args = parser.parse_args()
 
+    configure(args.model)
     random.seed(0)
     torch.manual_seed(0)
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -368,6 +394,7 @@ def main():
     schedule = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-3, total_steps=steps, pct_start=0.05)
 
     val_seqs = [encode(e, order_key, tag_keep=1.0) for e in val]
+    best_val, best_state, best_epoch = float("inf"), None, 0
     for epoch in range(args.epochs):
         model.train()
         random.shuffle(lm_train)
@@ -386,7 +413,13 @@ def main():
         with torch.no_grad():
             val_loss = np.mean([lm_loss(model, t).item() for t in batches(val_seqs, 512, device)])
         print(f"epoch {epoch + 1}: train {total / count:.3f} val {val_loss:.3f}")
+        # Small boards overfit late; keep the epoch that did best on held-out climbs.
+        if val_loss < best_val:
+            best_val, best_epoch = val_loss, epoch + 1
+            best_state = {name: tensor.detach().clone() for name, tensor in model.state_dict().items()}
 
+    model.load_state_dict(best_state)
+    print(f"kept epoch {best_epoch} (val {best_val:.3f})")
     torch.save({"model": model.state_dict(), "config": config}, args.checkpoint)
     export(model, config, placement_ids, coords, args.out)
 

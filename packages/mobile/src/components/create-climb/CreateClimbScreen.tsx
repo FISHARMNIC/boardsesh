@@ -20,7 +20,7 @@ import { spacing } from '../../theme/tokens';
 import { HoldRoleSheet } from './HoldRoleSheet';
 import { useLostHoldGhosts } from './use-lost-hold-ghosts';
 import { CreateDrawer } from './CreateDrawer';
-import { KILTER_ORIGINAL_LAYOUT_ID } from '../climb-generator/kilter-original';
+import { climbGeneratorModelKey } from '../../lib/climb-generator/models/supported';
 import { useCreateClimbScreen, type CreateClimbBoard } from './use-create-climb-screen';
 import { useHoldHeatmap } from '../../lib/graphql/hooks/use-hold-heatmap';
 import { useCatalogQuerySourceState } from '../../lib/offline/use-catalog-query-source';
@@ -61,10 +61,10 @@ export function CreateClimbScreen({
   const { systemColors } = useTheme();
   const router = useRouter();
 
-  // The experimental generator writes Kilter Original climbs only, and hands its
-  // holds back as a new climb, so it is offered on a new or remixed climb there.
-  const offersGenerator =
-    board.boardName === 'kilter' && board.layoutId === KILTER_ORIGINAL_LAYOUT_ID && !editClimbUuid;
+  // The experimental generator has a model for a few board layouts only, and
+  // hands its holds back as a new climb, so it is offered on a new or remixed
+  // climb on one of those.
+  const offersGenerator = climbGeneratorModelKey(board.boardName, board.layoutId) !== null && !editClimbUuid;
   const openGenerator = useCallback(() => {
     router.push({
       pathname: '/(tabs)/climbs/generate',

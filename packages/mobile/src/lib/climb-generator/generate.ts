@@ -12,10 +12,9 @@
  * - 1–2 start holds, 1–2 finish holds, 3–30 holds in total.
  */
 
-import graderExport from './grader.generated.json';
 import { ClimbGrader, type GraderExport } from './grader';
-import modelMeta from './model-meta.generated.json';
-import { CLIMB_GEN_WEIGHTS_BASE64 } from './model-weights.generated';
+import { CLIMB_GENERATOR_MODELS } from './models';
+import type { ClimbGeneratorModelKey } from './models/supported';
 import { ClimbTransformer, decodeBase64, loadWeights, type ModelConfig, type TensorEntry } from './transformer';
 
 type ClimbGenMeta = ModelConfig & {
@@ -41,6 +40,8 @@ type ClimbGenMeta = ModelConfig & {
 };
 
 export type GenerateOptions = {
+  /** Which board's model to use; see models/supported.ts. */
+  modelKey: ClimbGeneratorModelKey;
   angle: number;
   vGrade: number;
   tags: string[];
@@ -77,13 +78,15 @@ type LoadedModel = {
   orderRank: Int32Array;
 };
 
-let loaded: LoadedModel | null = null;
+const loaded = new Map<ClimbGeneratorModelKey, LoadedModel>();
 
-/** Decodes the ~0.5 MB of weights the first time the screen asks, not at app start. */
-export function loadClimbGenerator(): LoadedModel {
-  if (loaded) return loaded;
-  const meta = modelMeta as ClimbGenMeta;
-  const weights = loadWeights(decodeBase64(CLIMB_GEN_WEIGHTS_BASE64), meta.tensors);
+/** Decodes a board's weights the first time the screen asks for it, not at app start. */
+export function loadClimbGenerator(modelKey: ClimbGeneratorModelKey): LoadedModel {
+  const cached = loaded.get(modelKey);
+  if (cached) return cached;
+  const files = CLIMB_GENERATOR_MODELS[modelKey];
+  const meta = files.meta as ClimbGenMeta;
+  const weights = loadWeights(decodeBase64(files.weightsBase64), meta.tensors);
   const order = meta.placements
     .map(([, x, y], index) => ({ index, x, y }))
     .sort((first, second) => first.y - second.y || first.x - second.x);
@@ -91,17 +94,18 @@ export function loadClimbGenerator(): LoadedModel {
   order.forEach((entry, rank) => {
     orderRank[entry.index] = rank;
   });
-  loaded = {
+  const model: LoadedModel = {
     meta,
     transformer: new ClimbTransformer(meta, weights),
-    grader: new ClimbGrader(graderExport as GraderExport, meta.placements),
+    grader: new ClimbGrader(files.grader as GraderExport, meta.placements),
     orderRank,
   };
-  return loaded;
+  loaded.set(modelKey, model);
+  return model;
 }
 
-export function climbGeneratorTags(): string[] {
-  return loadClimbGenerator().meta.tags;
+export function climbGeneratorTags(modelKey: ClimbGeneratorModelKey): string[] {
+  return loadClimbGenerator(modelKey).meta.tags;
 }
 
 function sampleFrom(
@@ -182,7 +186,7 @@ function sampleOne(
 
 /** Yields to the event loop between candidates so the screen keeps painting. */
 export async function generateClimbs(options: GenerateOptions): Promise<GeneratedClimb[]> {
-  const model = loadClimbGenerator();
+  const model = loadClimbGenerator(options.modelKey);
   const { meta } = model;
   const { candidates = 24, keep = 5, temperature = 0.9, random = Math.random } = options;
 

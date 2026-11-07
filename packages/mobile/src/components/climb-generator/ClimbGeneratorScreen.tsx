@@ -12,7 +12,7 @@ import { hapticLight } from '../../lib/haptics';
 import { useOptionalBluetoothContext } from '../../providers/bluetooth-provider';
 import { useTheme } from '../../providers/theme-provider';
 
-import { KILTER_ORIGINAL_LAYOUT_ID } from './kilter-original';
+import { climbGeneratorModelKey } from '../../lib/climb-generator/models/supported';
 
 export type GeneratorBoard = {
   boardName: BoardName;
@@ -53,7 +53,8 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
   const [error, setError] = useState<string | null>(null);
 
   const angle = angleOverride ?? board.angle;
-  const supported = board.boardName === 'kilter' && board.layoutId === KILTER_ORIGINAL_LAYOUT_ID;
+  const modelKey = climbGeneratorModelKey(board.boardName, board.layoutId);
+  const supported = modelKey !== null;
 
   const renderData = useMemo(() => {
     if (!supported) return null;
@@ -69,7 +70,7 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
     () => new Set((renderData?.holdsData ?? []).map((hold) => hold.id)),
     [renderData],
   );
-  const tags = useMemo(() => (supported ? climbGeneratorTags() : []), [supported]);
+  const tags = useMemo(() => (modelKey ? climbGeneratorTags(modelKey) : []), [modelKey]);
 
   const toggleTag = useCallback((tag: string) => {
     hapticLight();
@@ -79,11 +80,13 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
   }, []);
 
   const generate = useCallback(async () => {
+    if (!modelKey) return;
     hapticLight();
     setGenerating(true);
     setError(null);
     try {
       const climbs = await generateClimbs({
+        modelKey,
         angle,
         vGrade,
         tags: selectedTags,
@@ -99,7 +102,7 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
     } finally {
       setGenerating(false);
     }
-  }, [angle, vGrade, selectedTags, allowedPlacementIds]);
+  }, [modelKey, angle, vGrade, selectedTags, allowedPlacementIds]);
 
   const selected = results[selectedIndex] ?? null;
   const isConnected = bluetooth?.isConnected ?? false;
@@ -231,9 +234,11 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
       <ScrollView style={styles.page} contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
         <View style={styles.card}>
           {/* i18n-ignore-next-line — tester-only screen */}
-          <Text style={styles.label}>The generator only knows the Kilter Board Original layout so far.</Text>
+          <Text style={styles.label}>There is no climb generator for this board yet.</Text>
           {/* i18n-ignore-next-line — tester-only screen */}
-          <Text style={styles.caption}>Open the climb editor on a Kilter Original to use it.</Text>
+          <Text style={styles.caption}>
+            It knows the Kilter Original, Tension Board 1, and Tension Board 2 Mirror and Spray.
+          </Text>
         </View>
       </ScrollView>
     );

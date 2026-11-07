@@ -80,8 +80,9 @@ def tensors_for(examples, coords, placement_ids, device):
             x, y = coords[placement_ids[placement_index]]
             placement[row, column] = placement_index
             role[row, column] = role_index
-            xy[row, column, 0] = x / train.EDGES["right"]
-            xy[row, column, 1] = y / train.EDGES["top"]
+            edges = train.EDGES
+            xy[row, column, 0] = (x - edges["left"]) / (edges["right"] - edges["left"])
+            xy[row, column, 1] = (y - edges["bottom"]) / (edges["top"] - edges["bottom"])
             mask[row, column] = 1
     angle = torch.tensor([e.angle / MAX_ANGLE for e in examples])
     grade = torch.tensor([e.v_grade for e in examples])
@@ -146,7 +147,8 @@ def export(model, logit_correction, temperature, out: Path):
         "numGrades": NUM_GRADES,
         "coverage": COVERAGE,
         "maxAngle": MAX_ANGLE,
-        "edges": {"right": train.EDGES["right"], "top": train.EDGES["top"]},
+        "key": train.MODEL_KEY,
+        "edges": dict(train.EDGES),
         "temperature": temperature,
         "logitCorrection": [round(float(value), 6) for value in logit_correction],
         "tensors": tensors,
@@ -159,6 +161,7 @@ def export(model, logit_correction, temperature, out: Path):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=sorted(train.BOARD_MODELS), default="kilter-1")
     parser.add_argument("--climbs", type=Path, required=True)
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--out", type=Path, default=Path("out"))
@@ -173,6 +176,7 @@ def main():
     parser.add_argument("--eval-only", action="store_true", help="reuse --checkpoint instead of training")
     args = parser.parse_args()
 
+    train.configure(args.model)
     random.seed(1)
     torch.manual_seed(1)
     device = "mps" if torch.backends.mps.is_available() else "cpu"
