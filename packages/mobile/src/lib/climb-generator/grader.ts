@@ -1,16 +1,21 @@
 /**
  * Pure-TS forward pass for the climb grader trained by ml/climbgen/grader.py.
- * Mirrors `Grader` there: per-hold MLP over [placement embedding, role
- * embedding, x, y, angle], mean/max/sum pooling, then a head that scores each
- * V-grade. The exported logit correction undoes the training class weights,
- * and the temperature calibrates the probabilities.
+ * Two kinds, chosen by the export's `kind`:
+ * - `deepsets` (v2, the default): per-hold MLP over [placement embedding, role
+ *   embedding, x, y, angle], mean/max/sum pooling, then a head per V-grade.
+ * - `attention` (v3): holds attend to each other first (set-encoder.ts), so the
+ *   moves between holds are visible.
+ * The exported logit correction undoes the training class weights, and the
+ * temperature calibrates the probabilities.
  */
 
+import { AttentionSetEncoder } from './set-encoder';
 import { decodeBase64 } from './transformer';
 
 type GraderTensor = { shape: number[]; base64: string };
 
 export type GraderExport = {
+  kind?: 'deepsets' | 'attention';
   numGrades: number;
   coverage: number;
   maxAngle: number;
@@ -52,17 +57,25 @@ function dense(input: Float32Array, weight: Float32Array, bias: Float32Array, re
 }
 
 export class ClimbGrader {
-  private readonly placementEmbedding: Float32Array;
-  private readonly placementDim: number;
-  private readonly roleEmbedding: Float32Array;
-  private readonly roleDim: number;
-  private readonly weights: Record<'node1' | 'node2' | 'head1' | 'head2', { weight: Float32Array; bias: Float32Array }>;
+  private readonly placementEmbedding!: Float32Array;
+  private readonly placementDim!: number;
+  private readonly roleEmbedding!: Float32Array;
+  private readonly roleDim!: number;
+  private readonly weights!: Record<
+    'node1' | 'node2' | 'head1' | 'head2',
+    { weight: Float32Array; bias: Float32Array }
+  >;
+  private readonly encoder: AttentionSetEncoder | null = null;
 
   constructor(
     private readonly exported: GraderExport,
     /** [placementId, x, y] per model placement index, from the generator's meta. */
     private readonly placements: number[][],
   ) {
+    if (exported.kind === 'attention') {
+      this.encoder = new AttentionSetEncoder(exported, placements);
+      return;
+    }
     const { tensors } = exported;
     this.placementEmbedding = tensorFrom(tensors['placement.weight']);
     this.placementDim = tensors['placement.weight'].shape[1];
@@ -76,7 +89,12 @@ export class ClimbGrader {
   }
 
   grade(holds: GraderHold[], angle: number): GradeEstimate {
-    const { maxAngle, edges, temperature, logitCorrection, numGrades, coverage } = this.exported;
+    const logits = this.encoder ? this.encoder.logits(holds, angle) : this.deepSetsLogits(holds, angle);
+    return this.estimate(logits);
+  }
+
+  private deepSetsLogits(holds: GraderHold[], angle: number): Float32Array {
+    const { maxAngle, edges } = this.exported;
     const angleFeature = angle / maxAngle;
     const hidden = this.weights.node2.bias.length;
     const mean = new Float32Array(hidden);
@@ -113,8 +131,12 @@ export class ClimbGrader {
     pooled[3 * hidden] = holds.length / 30;
     pooled[3 * hidden + 1] = angleFeature;
     const head = dense(pooled, this.weights.head1.weight, this.weights.head1.bias, true);
-    const logits = dense(head, this.weights.head2.weight, this.weights.head2.bias, false);
+    return dense(head, this.weights.head2.weight, this.weights.head2.bias, false);
+  }
 
+  private estimate(rawLogits: Float32Array): GradeEstimate {
+    const { temperature, logitCorrection, numGrades, coverage } = this.exported;
+    const logits = new Float32Array(rawLogits);
     const probabilities = new Float64Array(numGrades);
     let maxLogit = -Infinity;
     for (let grade = 0; grade < numGrades; grade += 1) {

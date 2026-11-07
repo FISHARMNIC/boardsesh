@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import json
+import random
 import re
 import sys
 import tempfile
@@ -21,6 +24,8 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import critic as critic_module  # noqa: E402
+import features  # noqa: E402
 import grader  # noqa: E402
 import train  # noqa: E402
 
@@ -51,6 +56,30 @@ def main():
         (DEST / "grader.json").write_bytes((out / "grader.generated.json").read_bytes())
         encoded = re.search(r"'([A-Za-z0-9+/=]+)'", (out / "model-weights.generated.ts").read_text()).group(1)
         (DEST / "weights.bin").write_bytes(base64.b64decode(encoded))
+    # v3 parts: a tiny attention critic paired to these weights, and reference
+    # outputs from PyTorch and features.py that the TypeScript ports must match.
+    weights_blob = (DEST / "weights.bin").read_bytes()
+    critic = grader.AttentionGrader(len(placement_ids), placement_dim=4, role_dim=2, dim=8, layers=1, heads=4, outputs=1)
+    for parameter in critic.parameters():
+        torch.nn.init.normal_(parameter, std=0.3)
+    with tempfile.TemporaryDirectory() as work:
+        critic_module.export(critic, 1.7, hashlib.sha256(weights_blob).hexdigest(), Path(work))
+        (DEST / "critic.json").write_bytes((Path(work) / "critic.generated.json").read_bytes())
+    xy = [coords[pid] for pid in placement_ids]
+    rng = random.Random(4)
+    cases = []
+    for _ in range(12):
+        picks = rng.sample(range(len(placement_ids)), rng.randint(3, 12))
+        holds = [[p, rng.choice([0, 1, 1, 2, 3])] for p in picks]
+        angle = rng.choice([20, 40, 55])
+        example = train.Example("x", angle, 0, 0.0, [], [tuple(h) for h in holds])
+        batch = grader.tensors_for([example], coords, placement_ids, "cpu")
+        with torch.no_grad():
+            logit = float(critic(*batch[:5])[0, 0])
+        cases.append({"holds": holds, "angle": angle, "criticLogit": logit,
+                      "features": list(features.climb_features(example.holds, xy))})
+    (DEST / "parity.json").write_text(json.dumps({"cases": cases}, indent=1) + "\n")
+
     for path in sorted(DEST.iterdir()):
         print(f"{path.name}: {path.stat().st_size / 1e3:.1f} kB")
 

@@ -104,8 +104,32 @@ TAGS = list(TEXT_TAGS) + GEOMETRY_TAGS
 PAD, BOS, SEP, EOS = 0, 1, 2, 3
 ANGLE_BASE = 4
 GRADE_BASE = ANGLE_BASE + len(ANGLES)
+# v3: two QUALITY tokens (ordinary, classic) after the grade. Off by default so
+# v2 checkpoints keep their vocabulary; set_quality_tokens(True) switches it on.
+QUALITY_BASE = -1
 TAG_BASE = GRADE_BASE + MAX_V + 1
 HOLD_BASE = TAG_BASE + len(TAGS)
+QUALITY_KEEP = 0.8  # the quality token is dropped 20% of the time in training
+
+# "Classic": a star average shrunk toward 2.5 by 10 imaginary ascents, so a climb
+# needs real evidence (many ascents, or very high stars) to count.
+CLASSIC_PRIOR_STARS = 2.5
+CLASSIC_PRIOR_WEIGHT = 10
+CLASSIC_MIN_STARS = 3.0  # top ~35% of climb-angle rows
+
+
+def set_quality_tokens(enabled: bool) -> None:
+    global QUALITY_BASE, TAG_BASE, HOLD_BASE
+    QUALITY_BASE = GRADE_BASE + MAX_V + 1 if enabled else -1
+    TAG_BASE = (QUALITY_BASE + 2) if enabled else GRADE_BASE + MAX_V + 1
+    HOLD_BASE = TAG_BASE + len(TAGS)
+
+
+def is_classic(quality: float | None, ascents: int) -> bool:
+    if quality is None:
+        return False
+    shrunk = (quality * ascents + CLASSIC_PRIOR_STARS * CLASSIC_PRIOR_WEIGHT) / (ascents + CLASSIC_PRIOR_WEIGHT)
+    return shrunk >= CLASSIC_MIN_STARS
 
 
 @dataclass
@@ -116,6 +140,9 @@ class Example:
     difficulty: float
     tags: list[int]
     holds: list[tuple[int, int]]  # (placement index, role index)
+    quality: float | None = None
+    ascents: int = 0
+    classic: bool = False
 
 
 def load_placements(catalog: Path) -> tuple[list[int], dict[int, tuple[int, int]]]:
@@ -147,7 +174,7 @@ def load_examples(climbs_db: Path, placement_ids: list[int], coords: dict[int, t
     db = sqlite3.connect(climbs_db)
     rows = db.execute(
         """SELECT c.uuid, c.name, c.description, c.characteristics, c.frames,
-                  s.angle, s.display_difficulty
+                  s.angle, s.display_difficulty, s.quality_average, s.ascensionist_count
            FROM board_climbs c JOIN board_climb_stats s ON s.climb_uuid = c.uuid
            WHERE c.layout_id = ? AND c.is_listed = 1 AND s.ascensionist_count >= 3
              AND s.display_difficulty IS NOT NULL""",
@@ -156,7 +183,7 @@ def load_examples(climbs_db: Path, placement_ids: list[int], coords: dict[int, t
 
     parsed: dict[str, tuple[list[tuple[int, int]], set[str]] | None] = {}
     examples: list[Example] = []
-    for uuid, name, description, characteristics, frames, angle, difficulty in rows:
+    for uuid, name, description, characteristics, frames, angle, difficulty, quality, ascents in rows:
         if angle not in ANGLES:
             continue
         if uuid not in parsed:
@@ -169,7 +196,8 @@ def load_examples(climbs_db: Path, placement_ids: list[int], coords: dict[int, t
         if v_grade is None or v_grade > MAX_V:
             continue
         examples.append(
-            Example(uuid, angle, v_grade, float(difficulty), sorted(TAGS.index(t) for t in text_tags), holds)
+            Example(uuid, angle, v_grade, float(difficulty), sorted(TAGS.index(t) for t in text_tags), holds,
+                    quality, int(ascents or 0), is_classic(quality, int(ascents or 0)))
         )
 
     add_geometry_tags(examples, placement_ids, coords)
@@ -238,6 +266,8 @@ def hold_order(coords, placement_ids):
 def encode(example: Example, order_key, tag_keep: float) -> list[int]:
     tags = [t for t in example.tags if random.random() < tag_keep]
     tokens = [BOS, ANGLE_BASE + ANGLES.index(example.angle), GRADE_BASE + example.v_grade]
+    if QUALITY_BASE >= 0 and random.random() < QUALITY_KEEP:
+        tokens.append(QUALITY_BASE + int(example.classic))
     tokens += [TAG_BASE + t for t in tags]
     tokens.append(SEP)
     tokens += [HOLD_BASE + p * 4 + r for p, r in sorted(example.holds, key=order_key)]
@@ -329,7 +359,8 @@ def export(model: ClimbGen, config: dict, placement_ids, coords, out: Path):
         "maxV": MAX_V,
         "tags": TAGS,
         "vocab": {"pad": PAD, "bos": BOS, "sep": SEP, "eos": EOS, "angleBase": ANGLE_BASE,
-                  "gradeBase": GRADE_BASE, "tagBase": TAG_BASE, "holdBase": HOLD_BASE},
+                  "gradeBase": GRADE_BASE, "qualityBase": QUALITY_BASE, "tagBase": TAG_BASE,
+                  "holdBase": HOLD_BASE},
         "placements": [[pid, *coords[pid]] for pid in placement_ids],
         "tensors": tensors,
     }
@@ -379,9 +410,12 @@ def main():
     parser.add_argument("--heads", type=int, default=4)
     parser.add_argument("--hard-oversample", action=argparse.BooleanOptionalAction, default=True,
                         help="repeat V8+ climbs (x2 V8-9, x3 V10-11, x4 V12+) so hard grades are not drowned out")
+    parser.add_argument("--quality-token", action="store_true",
+                        help="v3: condition on a classic/ordinary token (see is_classic); the app asks for classic")
     args = parser.parse_args()
 
     configure(args.model)
+    set_quality_tokens(args.quality_token)
     random.seed(0)
     torch.manual_seed(0)
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -398,8 +432,8 @@ def main():
     order_key = hold_order(coords, placement_ids)
 
     vocab = HOLD_BASE + len(placement_ids) * 4
-    max_len = 3 + len(TAGS) + 1 + MAX_HOLDS + 1
-    config = {"dim": args.dim, "layers": args.layers, "heads": args.heads, "ff": args.dim * 3,
+    max_len = 3 + int(args.quality_token) + len(TAGS) + 1 + MAX_HOLDS + 1
+    config = {"qualityToken": args.quality_token, "dim": args.dim, "layers": args.layers, "heads": args.heads, "ff": args.dim * 3,
               "vocabSize": vocab, "maxLen": max_len}
     model = ClimbGen(vocab, args.dim, args.layers, args.heads, args.dim * 3, max_len).to(device)
     print(f"params {sum(p.numel() for p in model.parameters()):,}")

@@ -7,7 +7,12 @@ import { BoardImageNative } from '../BoardImageNative';
 import { BleLightbulbButton } from '../ble/BleLightbulbButton';
 import { trackBoardConnectTapped } from '../../lib/analytics-board-connect';
 import { getBoardRenderData } from '../../lib/board-details';
-import { generateClimbs, loadClimbGenerator, type GeneratedClimb } from '../../lib/climb-generator/generate';
+import {
+  generateClimbs,
+  loadClimbGenerator,
+  type ClimbGeneratorVersion,
+  type GeneratedClimb,
+} from '../../lib/climb-generator/generate';
 import { hapticLight } from '../../lib/haptics';
 import { useOptionalBluetoothContext } from '../../providers/bluetooth-provider';
 import { useTheme } from '../../providers/theme-provider';
@@ -45,6 +50,8 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
   const bluetooth = useOptionalBluetoothContext();
 
   const [vGrade, setVGrade] = useState(4);
+  // v3 is on trial on Kilter Original only; elsewhere the screen always runs v2.
+  const [chosenVersion, setChosenVersion] = useState<ClimbGeneratorVersion>('v3');
   const [angleOverride, setAngleOverride] = useState<number | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [results, setResults] = useState<GeneratedClimb[]>([]);
@@ -54,6 +61,8 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
 
   const angle = angleOverride ?? board.angle;
   const modelKey = climbGeneratorModelKey(board.boardName, board.layoutId);
+  const offersV3 = modelKey === 'kilter-1';
+  const version: ClimbGeneratorVersion = offersV3 ? chosenVersion : 'v2';
   const supported = modelKey !== null;
 
   const renderData = useMemo(() => {
@@ -80,7 +89,7 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
     if (!modelKey) return;
     let current = true;
     setModelState({ status: 'loading' });
-    loadClimbGenerator(modelKey).then(
+    loadClimbGenerator(modelKey, version).then(
       (model) => current && setModelState({ status: 'ready', tags: model.meta.tags }),
       (caught: unknown) =>
         current &&
@@ -89,7 +98,7 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
     return () => {
       current = false;
     };
-  }, [modelKey, attempt]);
+  }, [modelKey, version, attempt]);
   const tags = modelState.status === 'ready' ? modelState.tags : [];
   const modelReady = modelState.status === 'ready';
 
@@ -108,6 +117,7 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
     try {
       const climbs = await generateClimbs({
         modelKey,
+        version,
         angle,
         vGrade,
         tags: selectedTags,
@@ -123,7 +133,7 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
     } finally {
       setGenerating(false);
     }
-  }, [modelKey, angle, vGrade, selectedTags, allowedPlacementIds]);
+  }, [modelKey, version, angle, vGrade, selectedTags, allowedPlacementIds]);
 
   const selected = results[selectedIndex] ?? null;
   const isConnected = bluetooth?.isConnected ?? false;
@@ -371,6 +381,29 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
       </View>
 
       <View style={styles.card}>
+        {offersV3 ? (
+          <View style={styles.row}>
+            {/* i18n-ignore-next-line — experimental screen */}
+            <Text style={styles.label}>Model</Text>
+            <View style={styles.chips}>
+              {(['v2', 'v3'] as const).map((option) => (
+                <Pressable
+                  key={option}
+                  onPress={() => {
+                    hapticLight();
+                    setChosenVersion(option);
+                    setResults([]);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: version === option }}
+                  style={[styles.chip, version === option && styles.chipSelected]}
+                >
+                  <Text style={[styles.chipText, version === option && styles.chipTextSelected]}>{option}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
         <View style={styles.row}>
           {/* i18n-ignore-next-line — tester-only screen */}
           <Text style={styles.label}>Grade</Text>

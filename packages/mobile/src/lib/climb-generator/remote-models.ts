@@ -1,11 +1,15 @@
 /**
- * Climb generator models that are downloaded instead of bundled.
+ * Climb generator models are downloaded, not bundled.
  *
- * One `manifest.json` at the models URL lists every board's current version and
- * its three files with their SHA-256. A board's files are fetched the first time
- * its generator opens, checked against the manifest, and kept on the phone; after
- * that the generator works offline. The last manifest seen is kept too, so an
- * offline launch can still find the cached files.
+ * A `manifest.json` at the models URL (or a sub-folder's, e.g. `v3/manifest.json`)
+ * lists every board's current version and its files with their SHA-256. A board's
+ * files are fetched the first time its generator opens, checked against the
+ * manifest, and kept on the phone; after that the generator works offline. The last
+ * manifest seen is kept too, so an offline launch can still find the cached files.
+ *
+ * Format 1 (v2 models) has exactly `meta`, `weights` and `grader`. Format 2 (v3)
+ * may add more named files (a critic, geometry limits, a known-climbs index); the
+ * caller says which files it needs.
  *
  * Network and disk are passed in (`RemoteModelDeps`) so this logic is testable;
  * remote-model-store.ts is the on-phone implementation.
@@ -13,44 +17,45 @@
 
 import { sha256Hex } from './sha256';
 
-export type RemoteModelFileName = 'meta' | 'weights' | 'grader';
-
 type ManifestFile = { path: string; sha256: string; bytes: number };
 
 export type RemoteModelEntry = {
   version: string;
-  files: Record<RemoteModelFileName, ManifestFile>;
+  files: Record<string, ManifestFile>;
 };
 
 export type ClimbGeneratorManifest = {
-  formatVersion: 1;
+  formatVersion: 1 | 2;
   models: Record<string, RemoteModelEntry>;
 };
 
 export type RemoteModelFiles = {
   version: string;
-  meta: unknown;
-  weights: Uint8Array;
-  grader: unknown;
+  files: Record<string, Uint8Array>;
 };
 
 export interface RemoteModelStore {
-  readManifest(): Promise<string | null>;
-  writeManifest(json: string): Promise<void>;
-  readFile(modelKey: string, version: string, name: RemoteModelFileName): Promise<Uint8Array | null>;
+  readManifest(manifestPath: string): Promise<string | null>;
+  writeManifest(manifestPath: string, json: string): Promise<void>;
+  readFile(storeKey: string, version: string, name: string): Promise<Uint8Array | null>;
   /** Must be atomic: a reader never sees a half-written file. */
-  writeFile(modelKey: string, version: string, name: RemoteModelFileName, bytes: Uint8Array): Promise<void>;
-  /** Drop every cached version of `modelKey` except `keepVersion`. */
-  pruneVersions(modelKey: string, keepVersion: string): Promise<void>;
+  writeFile(storeKey: string, version: string, name: string, bytes: Uint8Array): Promise<void>;
+  /** Drop every cached version under `storeKey` except `keepVersion`. */
+  pruneVersions(storeKey: string, keepVersion: string): Promise<void>;
 }
 
 export type RemoteModelDeps = {
   baseUrl: string;
   fetchBytes: (url: string) => Promise<Uint8Array>;
   store: RemoteModelStore;
+  /** Relative to `baseUrl`. Defaults to the v2 manifest at the root. */
+  manifestPath?: string;
+  /** Files this caller needs; each must be in the model's manifest entry. */
+  requiredFiles?: readonly string[];
 };
 
-const FILE_NAMES: RemoteModelFileName[] = ['meta', 'weights', 'grader'];
+export const V2_MODEL_FILES = ['meta', 'weights', 'grader'] as const;
+const FILE_NAME = /^[a-z][a-zA-Z0-9-]*$/;
 
 export class RemoteModelError extends Error {
   constructor(
@@ -68,6 +73,7 @@ function isManifestFile(value: unknown): value is ManifestFile {
   return (
     typeof file.path === 'string' &&
     !file.path.includes('..') &&
+    !file.path.startsWith('/') &&
     typeof file.sha256 === 'string' &&
     /^[0-9a-f]{64}$/.test(file.sha256) &&
     typeof file.bytes === 'number'
@@ -79,14 +85,21 @@ export function parseManifest(json: string): ClimbGeneratorManifest {
   const parsed: unknown = JSON.parse(json);
   if (typeof parsed !== 'object' || parsed === null) throw new Error('manifest is not an object');
   const { formatVersion, models } = parsed as Record<string, unknown>;
-  if (formatVersion !== 1) throw new Error(`unsupported manifest formatVersion ${String(formatVersion)}`);
+  if (formatVersion !== 1 && formatVersion !== 2) {
+    throw new Error(`unsupported manifest formatVersion ${String(formatVersion)}`);
+  }
   if (typeof models !== 'object' || models === null) throw new Error('manifest has no models');
   for (const [key, entry] of Object.entries(models as Record<string, unknown>)) {
     const { version, files } = (entry ?? {}) as Record<string, unknown>;
     if (typeof version !== 'string' || !/^[\w.-]+$/.test(version)) throw new Error(`model ${key} has a bad version`);
     if (typeof files !== 'object' || files === null) throw new Error(`model ${key} has no files`);
-    for (const name of FILE_NAMES) {
-      if (!isManifestFile((files as Record<string, unknown>)[name])) throw new Error(`model ${key} lacks ${name}`);
+    for (const [name, file] of Object.entries(files as Record<string, unknown>)) {
+      if (!FILE_NAME.test(name) || !isManifestFile(file)) throw new Error(`model ${key} has a bad ${name} file`);
+    }
+    if (formatVersion === 1) {
+      for (const name of V2_MODEL_FILES) {
+        if (!(name in (files as Record<string, unknown>))) throw new Error(`model ${key} lacks ${name}`);
+      }
     }
   }
   return parsed as ClimbGeneratorManifest;
@@ -94,42 +107,44 @@ export function parseManifest(json: string): ClimbGeneratorManifest {
 
 const textDecoder = new TextDecoder();
 
-function decodeFiles(version: string, bytes: Record<RemoteModelFileName, Uint8Array>): RemoteModelFiles {
-  return {
-    version,
-    meta: JSON.parse(textDecoder.decode(bytes.meta)),
-    weights: bytes.weights,
-    grader: JSON.parse(textDecoder.decode(bytes.grader)),
-  };
+export function decodeJson(bytes: Uint8Array): unknown {
+  return JSON.parse(textDecoder.decode(bytes));
+}
+
+/** Where a manifest's models live on the phone, so v2 and v3 copies never prune each other. */
+function storeKeyFor(manifestPath: string, modelKey: string): string {
+  const folder = manifestPath.includes('/') ? manifestPath.slice(0, manifestPath.lastIndexOf('/')) : '';
+  return folder ? `${folder}/${modelKey}` : modelKey;
 }
 
 async function readCachedFiles(
   store: RemoteModelStore,
-  modelKey: string,
+  storeKey: string,
   entry: RemoteModelEntry,
-): Promise<Record<RemoteModelFileName, Uint8Array> | null> {
-  const result: Partial<Record<RemoteModelFileName, Uint8Array>> = {};
-  for (const name of FILE_NAMES) {
-    const bytes = await store.readFile(modelKey, entry.version, name);
+  names: readonly string[],
+): Promise<Record<string, Uint8Array> | null> {
+  const result: Record<string, Uint8Array> = {};
+  for (const name of names) {
+    const bytes = await store.readFile(storeKey, entry.version, name);
     if (!bytes || sha256Hex(bytes) !== entry.files[name].sha256) return null;
     result[name] = bytes;
   }
-  return result as Record<RemoteModelFileName, Uint8Array>;
+  return result;
 }
 
 /**
  * The newest manifest we can get: the network's if it answers (and then saved),
  * else the one saved last time, else null.
  */
-async function currentManifest(deps: RemoteModelDeps): Promise<ClimbGeneratorManifest | null> {
+async function currentManifest(deps: RemoteModelDeps, manifestPath: string): Promise<ClimbGeneratorManifest | null> {
   try {
-    const bytes = await deps.fetchBytes(`${deps.baseUrl}/manifest.json`);
+    const bytes = await deps.fetchBytes(`${deps.baseUrl}/${manifestPath}`);
     const json = textDecoder.decode(bytes);
     const manifest = parseManifest(json);
-    await deps.store.writeManifest(json);
+    await deps.store.writeManifest(manifestPath, json);
     return manifest;
   } catch {
-    const saved = await deps.store.readManifest();
+    const saved = await deps.store.readManifest(manifestPath);
     if (!saved) return null;
     try {
       return parseManifest(saved);
@@ -146,16 +161,21 @@ async function currentManifest(deps: RemoteModelDeps): Promise<ClimbGeneratorMan
  * offline with nothing cached, or a download did not match its checksum.
  */
 export async function ensureRemoteModel(modelKey: string, deps: RemoteModelDeps): Promise<RemoteModelFiles> {
-  const manifest = await currentManifest(deps);
+  const manifestPath = deps.manifestPath ?? 'manifest.json';
+  const names = deps.requiredFiles ?? V2_MODEL_FILES;
+  const manifest = await currentManifest(deps, manifestPath);
   if (!manifest) throw new RemoteModelError('Could not reach the climb generator models.', 'offline');
   const entry = manifest.models[modelKey];
-  if (!entry) throw new RemoteModelError(`No climb generator model for ${modelKey}.`, 'unavailable');
+  if (!entry || names.some((name) => !(name in entry.files))) {
+    throw new RemoteModelError(`No climb generator model for ${modelKey}.`, 'unavailable');
+  }
+  const storeKey = storeKeyFor(manifestPath, modelKey);
 
-  const cached = await readCachedFiles(deps.store, modelKey, entry);
-  if (cached) return decodeFiles(entry.version, cached);
+  const cached = await readCachedFiles(deps.store, storeKey, entry, names);
+  if (cached) return { version: entry.version, files: cached };
 
-  const downloaded: Partial<Record<RemoteModelFileName, Uint8Array>> = {};
-  for (const name of FILE_NAMES) {
+  const downloaded: Record<string, Uint8Array> = {};
+  for (const name of names) {
     const file = entry.files[name];
     let bytes: Uint8Array;
     try {
@@ -168,9 +188,9 @@ export async function ensureRemoteModel(modelKey: string, deps: RemoteModelDeps)
     }
     downloaded[name] = bytes;
   }
-  for (const name of FILE_NAMES) {
-    await deps.store.writeFile(modelKey, entry.version, name, downloaded[name] as Uint8Array);
+  for (const name of names) {
+    await deps.store.writeFile(storeKey, entry.version, name, downloaded[name]);
   }
-  await deps.store.pruneVersions(modelKey, entry.version);
-  return decodeFiles(entry.version, downloaded as Record<RemoteModelFileName, Uint8Array>);
+  await deps.store.pruneVersions(storeKey, entry.version);
+  return { version: entry.version, files: downloaded };
 }

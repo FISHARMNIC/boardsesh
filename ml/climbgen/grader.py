@@ -69,6 +69,65 @@ class Grader(nn.Module):
         return self.head2(F.relu(self.head1(pooled)))
 
 
+class EncoderBlock(nn.Module):
+    """Pre-LN self-attention block over a climb's holds; padding holds are masked out."""
+
+    def __init__(self, dim: int, heads: int, ff: int):
+        super().__init__()
+        self.heads = heads
+        self.ln1 = nn.LayerNorm(dim)
+        self.qkv = nn.Linear(dim, 3 * dim)
+        self.proj = nn.Linear(dim, dim)
+        self.ln2 = nn.LayerNorm(dim)
+        self.fc1 = nn.Linear(dim, ff)
+        self.fc2 = nn.Linear(ff, dim)
+
+    def forward(self, x, keep):
+        batch, holds, dim = x.shape
+        q, k, v = self.qkv(self.ln1(x)).split(dim, dim=2)
+        shape = (batch, holds, self.heads, dim // self.heads)
+        q, k, v = (t.view(shape).transpose(1, 2) for t in (q, k, v))
+        attn = F.scaled_dot_product_attention(q, k, v, attn_mask=keep[:, None, None, :])
+        x = x + self.proj(attn.transpose(1, 2).reshape(batch, holds, dim))
+        return x + self.fc2(F.gelu(self.fc1(self.ln2(x)), approximate="tanh"))
+
+
+class AttentionGrader(nn.Module):
+    """v3: every hold attends to every other before pooling, so moves between holds are visible.
+
+    Same per-hold input as Grader; `outputs` is 16 grade logits, or 1 for the critic.
+    """
+
+    kind = "attention"
+
+    def __init__(self, placements: int, placement_dim: int = 24, role_dim: int = 8, dim: int = 64,
+                 layers: int = 2, heads: int = 4, outputs: int = NUM_GRADES):
+        super().__init__()
+        self.placement = nn.Embedding(placements, placement_dim)
+        self.role = nn.Embedding(4, role_dim)
+        self.inp = nn.Linear(placement_dim + role_dim + 3, dim)
+        self.blocks = nn.ModuleList(EncoderBlock(dim, heads, dim * 2) for _ in range(layers))
+        self.ln = nn.LayerNorm(dim)
+        self.head1 = nn.Linear(3 * dim + 2, dim)
+        self.head2 = nn.Linear(dim, outputs)
+
+    def forward(self, placement, role, xy, angle, mask):
+        batch, holds = placement.shape
+        angle_per_hold = angle[:, None, None].expand(batch, holds, 1)
+        x = self.inp(torch.cat([self.placement(placement), self.role(role), xy, angle_per_hold], dim=-1))
+        keep = mask > 0
+        for block in self.blocks:
+            x = block(x, keep)
+        x = self.ln(x)
+        weights = mask[:, :, None]
+        count = weights.sum(dim=1).clamp(min=1)
+        mean = (x * weights).sum(dim=1) / count
+        maximum = (x * weights + (weights - 1) * 1e4).amax(dim=1)
+        total = (x * weights).sum(dim=1) / 10.0
+        pooled = torch.cat([mean, maximum, total, count / 30.0, angle[:, None]], dim=-1)
+        return self.head2(F.relu(self.head1(pooled)))
+
+
 def tensors_for(examples, coords, placement_ids, device):
     width = max(len(e.holds) for e in examples)
     placement = torch.zeros((len(examples), width), dtype=torch.long)
@@ -144,6 +203,7 @@ def export(model, logit_correction, temperature, out: Path):
         array = param.detach().float().cpu().numpy().astype(np.float32)
         tensors[name] = {"shape": list(array.shape), "base64": base64.b64encode(array.tobytes()).decode()}
     payload = {
+        "kind": getattr(model, "kind", "deepsets"),
         "numGrades": NUM_GRADES,
         "coverage": COVERAGE,
         "maxAngle": MAX_ANGLE,
@@ -174,6 +234,8 @@ def main():
                         help="probability mass the shown range holds; discrete grades overshoot it, "
                              "so 0.75 gives ranges that contain the true grade at least 80%% of the time per grade band")
     parser.add_argument("--eval-only", action="store_true", help="reuse --checkpoint instead of training")
+    parser.add_argument("--arch", choices=["deepsets", "attention"], default="deepsets",
+                        help="attention (v3): holds see each other before pooling")
     args = parser.parse_args()
 
     train.configure(args.model)
@@ -195,7 +257,7 @@ def main():
 
     global COVERAGE
     COVERAGE = args.coverage
-    model = Grader(len(placement_ids)).to(device)
+    model = (AttentionGrader(len(placement_ids)) if args.arch == "attention" else Grader(len(placement_ids))).to(device)
     print(f"params {sum(p.numel() for p in model.parameters()):,}")
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=1e-4)
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)

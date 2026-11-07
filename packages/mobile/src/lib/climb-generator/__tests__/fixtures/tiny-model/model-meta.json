@@ -30,7 +30,17 @@
     "short",
     "long"
   ],
-  "vocab": { "pad": 0, "bos": 1, "sep": 2, "eos": 3, "angleBase": 4, "gradeBase": 19, "tagBase": 35, "holdBase": 52 },
+  "vocab": {
+    "pad": 0,
+    "bos": 1,
+    "sep": 2,
+    "eos": 3,
+    "angleBase": 4,
+    "gradeBase": 19,
+    "qualityBase": -1,
+    "tagBase": 35,
+    "holdBase": 52
+  },
   "placements": [
     [1073, 136, 8],
     [1074, 128, 8],

@@ -12,10 +12,14 @@ vi.mock('../remote-models', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../remote-models')>()),
   ensureRemoteModel: async (modelKey: string) => ({
     version: 'fixture',
-    // MoonBoards have start, hand and finish only; the same tiny model stands in for one.
-    meta: modelKey.startsWith('moonboard') ? { ...fixtureMeta, roles: [42, 43, 44] } : fixtureMeta,
-    weights: new Uint8Array(readFileSync(new URL('weights.bin', FIXTURE))),
-    grader: JSON.parse(readFileSync(new URL('grader.json', FIXTURE), 'utf8')),
+    files: {
+      // MoonBoards have start, hand and finish only; the same tiny model stands in for one.
+      meta: new TextEncoder().encode(
+        JSON.stringify(modelKey.startsWith('moonboard') ? { ...fixtureMeta, roles: [42, 43, 44] } : fixtureMeta),
+      ),
+      weights: new Uint8Array(readFileSync(new URL('weights.bin', FIXTURE))),
+      grader: new Uint8Array(readFileSync(new URL('grader.json', FIXTURE))),
+    },
   }),
 }));
 

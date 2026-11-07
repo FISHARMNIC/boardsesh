@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  decodeJson,
   ensureRemoteModel,
   parseManifest,
   RemoteModelError,
-  type RemoteModelFileName,
   type RemoteModelStore,
 } from '../remote-models';
+
+type FileName = 'meta' | 'weights' | 'grader';
 
 const encoder = new TextEncoder();
 const BASE = 'https://models.example/climbgen';
@@ -23,9 +25,9 @@ function modelFiles(version: string) {
   };
 }
 
-function serve(version: string, override: Partial<Record<RemoteModelFileName, Uint8Array>> = {}) {
+function serve(version: string, override: Partial<Record<FileName, Uint8Array>> = {}) {
   const files = modelFiles(version);
-  const entry = (name: RemoteModelFileName, path: string) => ({ path, sha256: sha(files[name]), bytes: 0 });
+  const entry = (name: FileName, path: string) => ({ path, sha256: sha(files[name]), bytes: 0 });
   const manifest = {
     formatVersion: 1,
     models: {
@@ -59,13 +61,13 @@ function offline() {
 }
 
 function memoryStore(): RemoteModelStore & { files: Map<string, Uint8Array> } {
-  let manifest: string | null = null;
+  const manifests = new Map<string, string>();
   const files = new Map<string, Uint8Array>();
   return {
     files,
-    readManifest: async () => manifest,
-    writeManifest: async (json) => {
-      manifest = json;
+    readManifest: async (path) => manifests.get(path) ?? null,
+    writeManifest: async (path, json) => {
+      manifests.set(path, json);
     },
     readFile: async (key, version, name) => files.get(`${key}/${version}/${name}`) ?? null,
     writeFile: async (key, version, name, bytes) => {
@@ -84,8 +86,8 @@ describe('ensureRemoteModel', () => {
     const store = memoryStore();
     const fetchBytes = serve('v1');
     const first = await ensureRemoteModel('tension-10', { baseUrl: BASE, fetchBytes, store });
-    expect(first.meta).toEqual({ tags: ['crimp'], version: 'v1' });
-    expect([...first.weights]).toEqual([1, 2, 3, 2]);
+    expect(decodeJson(first.files.meta)).toEqual({ tags: ['crimp'], version: 'v1' });
+    expect([...first.files.weights]).toEqual([1, 2, 3, 2]);
     expect(store.files.size).toBe(3);
 
     fetchBytes.mockClear();
@@ -131,6 +133,60 @@ describe('ensureRemoteModel', () => {
   });
 });
 
+describe('ensureRemoteModel with a v3 manifest', () => {
+  it('reads v3/manifest.json, fetches the extra files it needs, and keeps v2 and v3 copies apart', async () => {
+    const extra = encoder.encode('critic-bytes');
+    const v3Manifest = {
+      formatVersion: 2,
+      models: {
+        'tension-10': {
+          version: 'v3a',
+          files: {
+            meta: { path: 'v3/tension-10/v3a/model-meta.json', sha256: sha(modelFiles('v1').meta), bytes: 0 },
+            weights: { path: 'v3/tension-10/v3a/weights.bin', sha256: sha(modelFiles('v1').weights), bytes: 0 },
+            grader: { path: 'v3/tension-10/v3a/grader.json', sha256: sha(modelFiles('v1').grader), bytes: 0 },
+            critic: { path: 'v3/tension-10/v3a/critic.json', sha256: sha(extra), bytes: 0 },
+          },
+        },
+      },
+    };
+    const v2Fetch = serve('v1');
+    const files = modelFiles('v1');
+    const byUrl: Record<string, Uint8Array> = {
+      [`${BASE}/v3/manifest.json`]: encoder.encode(JSON.stringify(v3Manifest)),
+      [`${BASE}/v3/tension-10/v3a/model-meta.json`]: files.meta,
+      [`${BASE}/v3/tension-10/v3a/weights.bin`]: files.weights,
+      [`${BASE}/v3/tension-10/v3a/grader.json`]: files.grader,
+      [`${BASE}/v3/tension-10/v3a/critic.json`]: extra,
+    };
+    const fetchBytes = vi.fn(async (url: string) => byUrl[url] ?? v2Fetch(url));
+    const store = memoryStore();
+    await ensureRemoteModel('tension-10', { baseUrl: BASE, fetchBytes, store });
+    const v3 = await ensureRemoteModel('tension-10', {
+      baseUrl: BASE,
+      fetchBytes,
+      store,
+      manifestPath: 'v3/manifest.json',
+      requiredFiles: ['meta', 'weights', 'grader', 'critic'],
+    });
+    expect(new TextDecoder().decode(v3.files.critic)).toBe('critic-bytes');
+    // Both versions stay on the phone: switching between them never re-downloads.
+    expect([...store.files.keys()].filter((path) => path.startsWith('tension-10/'))).toHaveLength(3);
+    expect([...store.files.keys()].filter((path) => path.startsWith('v3/tension-10/'))).toHaveLength(4);
+  });
+
+  it('says unavailable when the model lacks a file the caller needs', async () => {
+    await expect(
+      ensureRemoteModel('tension-10', {
+        baseUrl: BASE,
+        fetchBytes: serve('v1'),
+        store: memoryStore(),
+        requiredFiles: ['meta', 'weights', 'grader', 'critic'],
+      }),
+    ).rejects.toMatchObject({ reason: 'unavailable' });
+  });
+});
+
 describe('parseManifest', () => {
   it('rejects a path that climbs out of the models folder', () => {
     const bad = {
@@ -150,6 +206,6 @@ describe('parseManifest', () => {
   });
 
   it('rejects an unknown format version', () => {
-    expect(() => parseManifest(JSON.stringify({ formatVersion: 2, models: {} }))).toThrow();
+    expect(() => parseManifest(JSON.stringify({ formatVersion: 3, models: {} }))).toThrow();
   });
 });

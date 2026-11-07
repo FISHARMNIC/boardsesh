@@ -1,4 +1,5 @@
 {
+  "kind": "deepsets",
   "numGrades": 16,
   "coverage": 0.8,
   "maxAngle": 70.0,
