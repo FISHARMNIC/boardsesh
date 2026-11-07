@@ -7,12 +7,7 @@ import { BoardImageNative } from '../BoardImageNative';
 import { BleLightbulbButton } from '../ble/BleLightbulbButton';
 import { trackBoardConnectTapped } from '../../lib/analytics-board-connect';
 import { getBoardRenderData } from '../../lib/board-details';
-import {
-  generateClimbs,
-  isBundledClimbGenerator,
-  loadClimbGenerator,
-  type GeneratedClimb,
-} from '../../lib/climb-generator/generate';
+import { generateClimbs, loadClimbGenerator, type GeneratedClimb } from '../../lib/climb-generator/generate';
 import { hapticLight } from '../../lib/haptics';
 import { useOptionalBluetoothContext } from '../../providers/bluetooth-provider';
 import { useTheme } from '../../providers/theme-provider';
@@ -249,6 +244,7 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
         secondaryText: { ...textStyles.headline, color: systemColors.label },
         disabled: { opacity: 0.4 },
         actions: { flexDirection: 'row', alignItems: 'center', gap: spacing[3] },
+        buttonRow: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] },
         grow: { flex: 1 },
         error: { ...textStyles.footnote, color: systemColors.error },
       }),
@@ -263,7 +259,8 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
           <Text style={styles.label}>There is no climb generator for this board yet.</Text>
           {/* i18n-ignore-next-line — tester-only screen */}
           <Text style={styles.caption}>
-            It knows the Kilter Original, Tension Board 1, and Tension Board 2 Mirror and Spray.
+            It knows the Kilter Original and Homewall, Tension Board 1, Tension Board 2 Mirror and Spray, and the
+            MoonBoard 2016, 2024, Masters 2017 and Masters 2019.
           </Text>
         </View>
       </ScrollView>
@@ -334,12 +331,6 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
         {/* The one generate button, always under the board. Before the first run
             it is the screen's main action; after it, "Use this climb" is, and this
             reruns with the same grade, angle and keywords. */}
-        {modelState.status === 'loading' && modelKey && !isBundledClimbGenerator(modelKey) ? (
-          // i18n-ignore-next-line — experimental screen
-          <Text style={styles.caption}>
-            Getting this board's generator. Only the first time, about half a megabyte.
-          </Text>
-        ) : null}
         {modelState.status === 'error' ? (
           <>
             <Text style={styles.error}>{modelState.message}</Text>
@@ -357,7 +348,17 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
             (generating || !modelReady) && styles.disabled,
           ]}
         >
-          {generating || modelState.status === 'loading' ? (
+          {modelState.status === 'loading' ? (
+            // Said on the button itself: a first open downloads the board's model
+            // (about half a megabyte), and a caption elsewhere went unnoticed.
+            <View style={styles.buttonRow}>
+              <ActivityIndicator color={selected ? systemColors.label : '#FFFFFF'} />
+              <Text style={selected ? styles.secondaryText : styles.primaryText}>
+                {/* i18n-ignore-next-line — experimental screen */}
+                Getting this board's generator…
+              </Text>
+            </View>
+          ) : generating ? (
             <ActivityIndicator color={selected ? systemColors.label : '#FFFFFF'} />
           ) : (
             <Text style={selected ? styles.secondaryText : styles.primaryText}>

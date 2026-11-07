@@ -1,12 +1,22 @@
 /**
  * Which board layouts have a trained climb generator, keyed `<board>-<layoutId>`.
- * Kilter Original ships in the app; the rest download on first use. Kept free of
- * the model files, so a screen can ask "is there a generator for this board?"
- * without pulling weights into its import graph.
+ * Every model downloads on first use (remote-models.ts). Kept free of model
+ * code, so a screen can ask "is there a generator for this board?" cheaply.
+ *
+ * The two TB2 layouts share most holes but not the holds in them, and the four
+ * MoonBoards are different hold sets on one grid, so each has its own model.
  */
-// Kilter Original, Tension Board 1, Tension Board 2 Mirror and Spray. The two TB2
-// layouts share most holes but not the holds bolted into them, so each has its own.
-export const CLIMB_GENERATOR_MODEL_KEYS = ['kilter-1', 'tension-9', 'tension-10', 'tension-11'] as const;
+export const CLIMB_GENERATOR_MODEL_KEYS = [
+  'kilter-1',
+  'kilter-8',
+  'tension-9',
+  'tension-10',
+  'tension-11',
+  'moonboard-2',
+  'moonboard-3',
+  'moonboard-4',
+  'moonboard-5',
+] as const;
 
 export type ClimbGeneratorModelKey = (typeof CLIMB_GENERATOR_MODEL_KEYS)[number];
 

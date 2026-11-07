@@ -13,12 +13,11 @@
  */
 
 import { ClimbGrader, type GraderExport } from './grader';
-import { BUNDLED_CLIMB_GENERATOR_MODELS } from './models';
 import { CLIMB_GENERATOR_MODELS_URL } from './models/remote-config';
 import type { ClimbGeneratorModelKey } from './models/supported';
 import { expoRemoteModelStore, fetchBytes } from './remote-model-store';
 import { RemoteModelError, ensureRemoteModel } from './remote-models';
-import { ClimbTransformer, decodeBase64, loadWeights, type ModelConfig, type TensorEntry } from './transformer';
+import { ClimbTransformer, loadWeights, type ModelConfig, type TensorEntry } from './transformer';
 
 type ClimbGenMeta = ModelConfig & {
   board: string;
@@ -101,14 +100,6 @@ function buildModel(meta: ClimbGenMeta, weightBytes: Uint8Array, grader: GraderE
 }
 
 async function fetchModel(modelKey: ClimbGeneratorModelKey): Promise<LoadedModel> {
-  const bundled = BUNDLED_CLIMB_GENERATOR_MODELS[modelKey];
-  if (bundled) {
-    return buildModel(
-      bundled.meta as ClimbGenMeta,
-      decodeBase64(bundled.weightsBase64),
-      bundled.grader as GraderExport,
-    );
-  }
   if (!CLIMB_GENERATOR_MODELS_URL) {
     throw new RemoteModelError('This build has no address for downloaded climb generator models.', 'unavailable');
   }
@@ -121,8 +112,7 @@ async function fetchModel(modelKey: ClimbGeneratorModelKey): Promise<LoadedModel
 }
 
 /**
- * A board's generator: decoded from the app (Kilter Original) or downloaded on
- * first use and kept on the phone. Shared while loading; a failed load is
+ * A board's generator, downloaded on first use and kept on the phone. Shared while loading; a failed load is
  * forgotten, so opening the screen again retries.
  */
 export function loadClimbGenerator(modelKey: ClimbGeneratorModelKey): Promise<LoadedModel> {
@@ -132,11 +122,6 @@ export function loadClimbGenerator(modelKey: ClimbGeneratorModelKey): Promise<Lo
   loaded.set(modelKey, loading);
   loading.catch(() => loaded.delete(modelKey));
   return loading;
-}
-
-/** True when this board's model ships inside the app, so opening it never downloads. */
-export function isBundledClimbGenerator(modelKey: ClimbGeneratorModelKey): boolean {
-  return BUNDLED_CLIMB_GENERATOR_MODELS[modelKey] !== undefined;
 }
 
 export async function climbGeneratorTags(modelKey: ClimbGeneratorModelKey): Promise<string[]> {
@@ -198,6 +183,8 @@ function sampleOne(
         const placementIndex = (candidate - holdBase) >> 2;
         const roleIndex = (candidate - holdBase) & 3;
         if (!allowedPlacement[placementIndex] || orderRank[placementIndex] <= lastRank) return false;
+        // Four role slots per hold; a board with fewer roles (MoonBoard: no foot) never uses the rest.
+        if (roleIndex >= meta.roles.length) return false;
         if (roleIndex === ROLE_START && starts >= 2) return false;
         if (roleIndex === ROLE_FINISH && finishes >= 2) return false;
         return true;

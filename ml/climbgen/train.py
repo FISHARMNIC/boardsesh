@@ -47,7 +47,18 @@ BOARD_MODELS = {
                    "edges": {"left": -92, "right": 92, "bottom": 0, "top": 144}},
     "tension-11": {"board": "tension", "layout": 11, "roles": [5, 6, 7, 8],
                    "edges": {"left": -92, "right": 92, "bottom": 0, "top": 144}},
+    # Kilter Homewall, its largest wall (10x12).
+    "kilter-8": {"board": "kilter", "layout": 8, "roles": [42, 43, 44, 45],
+                 "edges": {"left": -56, "right": 56, "bottom": -12, "top": 144}},
 }
+# MoonBoards number holds by grid cell, (row - 1) * 11 + column + 1 on an 11x18
+# grid (board-config's coordinateToHoldId), not by catalogue placement. Start,
+# hand and finish only: there is no foot-only role. x is the column, y the row.
+for _layout in (2, 3, 4, 5):
+    BOARD_MODELS[f"moonboard-{_layout}"] = {
+        "board": "moonboard", "layout": _layout, "roles": [42, 43, 44], "grid": (11, 18),
+        "edges": {"left": -1, "right": 11, "bottom": 0, "top": 19},
+    }
 MODEL_KEY = "kilter-1"
 BOARD = "kilter"
 LAYOUT_ID = 1
@@ -108,6 +119,11 @@ class Example:
 
 
 def load_placements(catalog: Path) -> tuple[list[int], dict[int, tuple[int, int]]]:
+    grid = BOARD_MODELS[MODEL_KEY].get("grid")
+    if grid:
+        columns, rows = grid
+        cells = [(cell, (cell - 1) % columns, (cell - 1) // columns + 1) for cell in range(1, columns * rows + 1)]
+        return [cell for cell, _, _ in cells], {cell: (x, y) for cell, x, y in cells}
     db = sqlite3.connect(catalog)
     rows = db.execute(
         """SELECT p.id, h.x, h.y FROM board_placements p
