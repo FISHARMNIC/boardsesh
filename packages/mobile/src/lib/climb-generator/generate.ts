@@ -25,7 +25,7 @@ import { ClimbGrader, type GraderExport } from './grader';
 import { KnownClimbs } from './known-climbs';
 import { CLIMB_GENERATOR_MODELS_URL } from './models/remote-config';
 import type { ClimbGeneratorModelKey } from './models/supported';
-import { expoRemoteModelStore, fetchBytes } from './remote-model-store';
+import { expoRemoteModelStore, fetchBytes, removeLegacyRootModels } from './remote-model-store';
 import { RemoteModelError, decodeJson, ensureRemoteModel } from './remote-models';
 import { AttentionSetEncoder, type SetEncoderExport } from './set-encoder';
 import { sha256Hex } from './sha256';
@@ -150,13 +150,19 @@ function buildModel(meta: ClimbGenMeta, weightBytes: Uint8Array, grader: GraderE
   };
 }
 
+let legacyCleaned = false;
+
 async function fetchModel(modelKey: ClimbGeneratorModelKey, version: ClimbGeneratorVersion): Promise<LoadedModel> {
   if (!CLIMB_GENERATOR_MODELS_URL) {
     throw new RemoteModelError('This build has no address for downloaded climb generator models.', 'unavailable');
   }
+  if (!legacyCleaned) {
+    legacyCleaned = true;
+    removeLegacyRootModels();
+  }
   const deps = { baseUrl: CLIMB_GENERATOR_MODELS_URL, fetchBytes, store: expoRemoteModelStore };
   if (version === 'v2') {
-    const { files } = await ensureRemoteModel(modelKey, deps);
+    const { files } = await ensureRemoteModel(modelKey, { ...deps, manifestPath: 'v2/manifest.json' });
     return buildModel(
       decodeJson(files.meta) as ClimbGenMeta,
       files.weights,

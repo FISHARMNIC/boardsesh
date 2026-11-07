@@ -8,6 +8,11 @@ import { climbGeneratorModelKey } from '../models/supported';
 const FIXTURE = new URL('./fixtures/tiny-model/', import.meta.url);
 const fixtureMeta = JSON.parse(readFileSync(new URL('model-meta.json', FIXTURE), 'utf8'));
 vi.mock('../models/remote-config', () => ({ CLIMB_GENERATOR_MODELS_URL: 'https://models.test' }));
+vi.mock('../remote-model-store', () => ({
+  expoRemoteModelStore: {},
+  fetchBytes: async () => new Uint8Array(),
+  removeLegacyRootModels: () => {},
+}));
 vi.mock('../remote-models', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../remote-models')>()),
   ensureRemoteModel: async (modelKey: string) => ({

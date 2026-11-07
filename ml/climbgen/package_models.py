@@ -4,16 +4,17 @@ packages/mobile/src/lib/climb-generator/remote-models.ts).
 Reads each model's export from out/<model>/ (what train.py and grader.py write)
 and writes the hosted layout:
 
-  <dest>/manifest.json
-  <dest>/<model>/<version>/model-meta.json
-  <dest>/<model>/<version>/weights.bin      raw int8/float32 blob (no base64)
-  <dest>/<model>/<version>/grader.json
+  <dest>/v2/manifest.json
+  <dest>/v2/<model>/<version>/model-meta.json
+  <dest>/v2/<model>/<version>/weights.bin      raw int8/float32 blob (no base64)
+  <dest>/v2/<model>/<version>/grader.json
 
-An existing <dest>/manifest.json is kept and updated, so packaging one board
-leaves the others listed. Files of a version are written before the manifest
+Manifest paths are relative to the repo root (v2/...), like v3's. An existing
+<dest>/v2/manifest.json is kept and updated, so packaging one board leaves the
+others listed. Files of a version are written before the manifest
 names them. Upload the folder with the Hugging Face CLI, e.g.
 
-  .venv/bin/hf upload <user>/boardsesh-climbgen out/hub . --repo-type model
+  .venv/bin/hf upload <user>/boardsesh-climbgen out/hub/v2 v2 --repo-type model
 
 Usage (from ml/climbgen/):
   .venv/bin/python -I package_models.py --version 2026-11-06 tension-9 tension-10 tension-11
@@ -38,6 +39,12 @@ def file_entry(dest: Path, relative: str, data: bytes) -> dict:
     return {"path": relative, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
 
 
+def put(v2: Path, relative: str, data: bytes) -> dict:
+    info = file_entry(v2, relative, data)
+    info["path"] = f"v2/{info['path']}"  # paths are relative to the models URL root
+    return info
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("models", nargs="+", help="model keys, e.g. tension-9")
@@ -48,7 +55,8 @@ def main():
     if not re.fullmatch(r"[\w.-]+", args.version):
         parser.error("--version may use letters, digits, '.', '_' and '-' only")
 
-    manifest_path = args.dest / "manifest.json"
+    v2 = args.dest / "v2"
+    manifest_path = v2 / "manifest.json"
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {"formatVersion": 1, "models": {}}
 
     for key in args.models:
@@ -67,9 +75,9 @@ def main():
         manifest["models"][key] = {
             "version": args.version,
             "files": {
-                "meta": file_entry(args.dest, f"{prefix}/model-meta.json", meta),
-                "weights": file_entry(args.dest, f"{prefix}/weights.bin", weights),
-                "grader": file_entry(args.dest, f"{prefix}/grader.json", grader),
+                "meta": put(v2, f"{prefix}/model-meta.json", meta),
+                "weights": put(v2, f"{prefix}/weights.bin", weights),
+                "grader": put(v2, f"{prefix}/grader.json", grader),
             },
         }
         total = len(meta) + len(weights) + len(grader)

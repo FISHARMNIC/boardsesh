@@ -1,6 +1,6 @@
 /**
  * Where downloaded climb generator models live on the phone:
- * `<documents>/climb-generator/[<manifest folder>/]<model>/<version>/<file>` plus
+ * `<documents>/climb-generator/<manifest folder>/<model>/<version>/<file>` plus
  * each manifest last seen. Documents, not caches, so the OS never reclaims a model
  * and the generator keeps working offline once a board has been opened.
  */
@@ -48,6 +48,21 @@ async function writeAtomically(directory: Directory, name: string, content: stri
   const partial = new File(directory, `${name}.part`);
   await partial.write(content);
   await partial.move(new File(directory, name), { overwrite: true });
+}
+
+const MANIFEST_FOLDERS = new Set(['v2', 'v3']);
+
+/**
+ * Before the v2/ and v3/ folders, v2 models sat at the root of the store. Delete
+ * anything there that is not a current manifest folder, so those copies don't
+ * linger. Safe to call on every load.
+ */
+export function removeLegacyRootModels() {
+  const directory = root();
+  if (!directory.exists) return;
+  for (const entry of directory.list()) {
+    if (!(entry instanceof Directory && MANIFEST_FOLDERS.has(entry.name))) deleteQuietly(entry);
+  }
 }
 
 export const expoRemoteModelStore: RemoteModelStore = {

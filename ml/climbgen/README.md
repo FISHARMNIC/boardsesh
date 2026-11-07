@@ -61,19 +61,21 @@ Held-out test, flat prior: median-guess error 0.99 V. The average guess is withi
 ## Downloaded models
 
 Every board downloads its model the first time its generator opens
-(`packages/mobile/src/lib/climb-generator/remote-models.ts`): the app reads `manifest.json` from the models URL
-(`models/remote-config.ts`, or `EXPO_PUBLIC_CLIMB_GENERATOR_MODELS_URL`), fetches that board's three files, checks each
+(`packages/mobile/src/lib/climb-generator/remote-models.ts`): the app reads `v2/manifest.json` (or `v3/manifest.json` for v3) from the models URL
+(`models/remote-config.ts`, or `EXPO_PUBLIC_CLIMB_GENERATOR_MODELS_URL`), fetches that board's files, checks each
 against its SHA-256, and keeps them under the app's documents folder, so later opens work offline. A new version in
 the manifest replaces the old files on the next open.
 
 The models are hosted on Hugging Face for now. To publish:
 
 ```bash
-.venv/bin/python -I package_models.py --version <date> tension-9 tension-10 tension-11   # writes out/hub/
-.venv/bin/hf upload <user>/boardsesh-climbgen out/hub . --repo-type model
+.venv/bin/python -I package_models.py --version <date> tension-9 tension-10 tension-11   # writes out/hub/v2/
+.venv/bin/hf upload <user>/boardsesh-climbgen out/hub/v2 v2 --repo-type model
+# v3: package_v3.py writes out/hub/v3/ (see V3.md)
+.venv/bin/hf upload <user>/boardsesh-climbgen out/hub/v3 v3 --repo-type model
 ```
 
-`package_models.py` keeps an existing `out/hub/manifest.json`, so packaging one board leaves the others listed.
+`package_models.py` keeps an existing `out/hub/v2/manifest.json`, so packaging one board leaves the others listed.
 
 ## Train and export
 

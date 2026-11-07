@@ -1,8 +1,8 @@
 /**
  * Climb generator models are downloaded, not bundled.
  *
- * A `manifest.json` at the models URL (or a sub-folder's, e.g. `v3/manifest.json`)
- * lists every board's current version and its files with their SHA-256. A board's
+ * Each model generation has its own folder at the models URL (`v2/`, `v3/`), whose
+ * `manifest.json` lists every board's current version and its files with their SHA-256. A board's
  * files are fetched the first time its generator opens, checked against the
  * manifest, and kept on the phone; after that the generator works offline. The last
  * manifest seen is kept too, so an offline launch can still find the cached files.
@@ -48,8 +48,8 @@ export type RemoteModelDeps = {
   baseUrl: string;
   fetchBytes: (url: string) => Promise<Uint8Array>;
   store: RemoteModelStore;
-  /** Relative to `baseUrl`. Defaults to the v2 manifest at the root. */
-  manifestPath?: string;
+  /** Relative to `baseUrl`, e.g. `v2/manifest.json`. Its folder namespaces the phone's copies. */
+  manifestPath: string;
   /** Files this caller needs; each must be in the model's manifest entry. */
   requiredFiles?: readonly string[];
 };
@@ -161,7 +161,7 @@ async function currentManifest(deps: RemoteModelDeps, manifestPath: string): Pro
  * offline with nothing cached, or a download did not match its checksum.
  */
 export async function ensureRemoteModel(modelKey: string, deps: RemoteModelDeps): Promise<RemoteModelFiles> {
-  const manifestPath = deps.manifestPath ?? 'manifest.json';
+  const { manifestPath } = deps;
   const names = deps.requiredFiles ?? V2_MODEL_FILES;
   const manifest = await currentManifest(deps, manifestPath);
   if (!manifest) throw new RemoteModelError('Could not reach the climb generator models.', 'offline');
