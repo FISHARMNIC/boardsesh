@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { generateClimbs } from '../generate';
-import { CLIMB_GENERATOR_MODELS } from '../models';
-import { CLIMB_GENERATOR_MODEL_KEYS, climbGeneratorModelKey } from '../models/supported';
+import { BUNDLED_CLIMB_GENERATOR_MODELS } from '../models';
+import { climbGeneratorModelKey, type ClimbGeneratorModelKey } from '../models/supported';
+
+// Only bundled models can run here; downloaded ones are covered in remote-models.test.ts.
+const BUNDLED_KEYS = Object.keys(BUNDLED_CLIMB_GENERATOR_MODELS) as ClimbGeneratorModelKey[];
 
 function seededRandom(seed: number): () => number {
   let state = seed;
@@ -14,8 +17,8 @@ function seededRandom(seed: number): () => number {
 type TestMeta = { placements: number[][]; roles: number[] };
 
 describe('generateClimbs', () => {
-  it.each(CLIMB_GENERATOR_MODEL_KEYS)('only writes valid %s climbs on the holds it was allowed', async (modelKey) => {
-    const meta = CLIMB_GENERATOR_MODELS[modelKey].meta as TestMeta;
+  it.each(BUNDLED_KEYS)('only writes valid %s climbs on the holds it was allowed', async (modelKey) => {
+    const meta = BUNDLED_CLIMB_GENERATOR_MODELS[modelKey]?.meta as TestMeta;
     const [startRole, , finishRole] = meta.roles;
     // Half the board, so the mask is doing real work.
     const allowed = new Set(meta.placements.map(([placementId]) => placementId).filter((_, index) => index % 2 === 0));
@@ -66,11 +69,7 @@ describe('climbGeneratorModelKey', () => {
     expect(climbGeneratorModelKey('moonboard', 1)).toBeNull();
   });
 
-  it('has the model files for every key it advertises', () => {
-    for (const modelKey of CLIMB_GENERATOR_MODEL_KEYS) {
-      expect((CLIMB_GENERATOR_MODELS[modelKey].meta as { key?: string; layoutId: number }).layoutId).toBe(
-        Number(modelKey.split('-')[1]),
-      );
-    }
+  it('ships Kilter Original in the app', () => {
+    expect(BUNDLED_KEYS).toEqual(['kilter-1']);
   });
 });

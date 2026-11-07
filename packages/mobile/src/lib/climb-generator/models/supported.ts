@@ -1,7 +1,8 @@
 /**
  * Which board layouts have a trained climb generator, keyed `<board>-<layoutId>`.
- * Kept free of the model files, so a screen can ask "is there a generator for
- * this board?" without pulling ~1 MB of weights into its import graph.
+ * Kilter Original ships in the app; the rest download on first use. Kept free of
+ * the model files, so a screen can ask "is there a generator for this board?"
+ * without pulling weights into its import graph.
  */
 // Kilter Original, Tension Board 1, Tension Board 2 Mirror and Spray. The two TB2
 // layouts share most holes but not the holds bolted into them, so each has its own.

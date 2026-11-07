@@ -13,8 +13,11 @@
  */
 
 import { ClimbGrader, type GraderExport } from './grader';
-import { CLIMB_GENERATOR_MODELS } from './models';
+import { BUNDLED_CLIMB_GENERATOR_MODELS } from './models';
+import { CLIMB_GENERATOR_MODELS_URL } from './models/remote-config';
 import type { ClimbGeneratorModelKey } from './models/supported';
+import { expoRemoteModelStore, fetchBytes } from './remote-model-store';
+import { RemoteModelError, ensureRemoteModel } from './remote-models';
 import { ClimbTransformer, decodeBase64, loadWeights, type ModelConfig, type TensorEntry } from './transformer';
 
 type ClimbGenMeta = ModelConfig & {
@@ -78,15 +81,10 @@ type LoadedModel = {
   orderRank: Int32Array;
 };
 
-const loaded = new Map<ClimbGeneratorModelKey, LoadedModel>();
+const loaded = new Map<ClimbGeneratorModelKey, Promise<LoadedModel>>();
 
-/** Decodes a board's weights the first time the screen asks for it, not at app start. */
-export function loadClimbGenerator(modelKey: ClimbGeneratorModelKey): LoadedModel {
-  const cached = loaded.get(modelKey);
-  if (cached) return cached;
-  const files = CLIMB_GENERATOR_MODELS[modelKey];
-  const meta = files.meta as ClimbGenMeta;
-  const weights = loadWeights(decodeBase64(files.weightsBase64), meta.tensors);
+function buildModel(meta: ClimbGenMeta, weightBytes: Uint8Array, grader: GraderExport): LoadedModel {
+  const weights = loadWeights(weightBytes, meta.tensors);
   const order = meta.placements
     .map(([, x, y], index) => ({ index, x, y }))
     .sort((first, second) => first.y - second.y || first.x - second.x);
@@ -94,18 +92,55 @@ export function loadClimbGenerator(modelKey: ClimbGeneratorModelKey): LoadedMode
   order.forEach((entry, rank) => {
     orderRank[entry.index] = rank;
   });
-  const model: LoadedModel = {
+  return {
     meta,
     transformer: new ClimbTransformer(meta, weights),
-    grader: new ClimbGrader(files.grader as GraderExport, meta.placements),
+    grader: new ClimbGrader(grader, meta.placements),
     orderRank,
   };
-  loaded.set(modelKey, model);
-  return model;
 }
 
-export function climbGeneratorTags(modelKey: ClimbGeneratorModelKey): string[] {
-  return loadClimbGenerator(modelKey).meta.tags;
+async function fetchModel(modelKey: ClimbGeneratorModelKey): Promise<LoadedModel> {
+  const bundled = BUNDLED_CLIMB_GENERATOR_MODELS[modelKey];
+  if (bundled) {
+    return buildModel(
+      bundled.meta as ClimbGenMeta,
+      decodeBase64(bundled.weightsBase64),
+      bundled.grader as GraderExport,
+    );
+  }
+  if (!CLIMB_GENERATOR_MODELS_URL) {
+    throw new RemoteModelError('This build has no address for downloaded climb generator models.', 'unavailable');
+  }
+  const files = await ensureRemoteModel(modelKey, {
+    baseUrl: CLIMB_GENERATOR_MODELS_URL,
+    fetchBytes,
+    store: expoRemoteModelStore,
+  });
+  return buildModel(files.meta as ClimbGenMeta, files.weights, files.grader as GraderExport);
+}
+
+/**
+ * A board's generator: decoded from the app (Kilter Original) or downloaded on
+ * first use and kept on the phone. Shared while loading; a failed load is
+ * forgotten, so opening the screen again retries.
+ */
+export function loadClimbGenerator(modelKey: ClimbGeneratorModelKey): Promise<LoadedModel> {
+  const pending = loaded.get(modelKey);
+  if (pending) return pending;
+  const loading = fetchModel(modelKey);
+  loaded.set(modelKey, loading);
+  loading.catch(() => loaded.delete(modelKey));
+  return loading;
+}
+
+/** True when this board's model ships inside the app, so opening it never downloads. */
+export function isBundledClimbGenerator(modelKey: ClimbGeneratorModelKey): boolean {
+  return BUNDLED_CLIMB_GENERATOR_MODELS[modelKey] !== undefined;
+}
+
+export async function climbGeneratorTags(modelKey: ClimbGeneratorModelKey): Promise<string[]> {
+  return (await loadClimbGenerator(modelKey)).meta.tags;
 }
 
 function sampleFrom(
@@ -186,7 +221,7 @@ function sampleOne(
 
 /** Yields to the event loop between candidates so the screen keeps painting. */
 export async function generateClimbs(options: GenerateOptions): Promise<GeneratedClimb[]> {
-  const model = loadClimbGenerator(options.modelKey);
+  const model = await loadClimbGenerator(options.modelKey);
   const { meta } = model;
   const { candidates = 24, keep = 5, temperature = 0.9, random = Math.random } = options;
 

@@ -48,6 +48,23 @@ Held-out test, flat prior: median-guess error 0.99 V. The average guess is withi
 (V0 reads 0.7 high). The shown range (75% of the probability) contains the true grade 86% of the time at V0–V4,
 84% at V5–V7, 80% at V8–V11 and 76% at V12+ (38 climbs, too few to tune on).
 
+## Downloaded models
+
+Kilter Original ships inside the app. Every other board downloads its model the first time its generator opens
+(`packages/mobile/src/lib/climb-generator/remote-models.ts`): the app reads `manifest.json` from the models URL
+(`models/remote-config.ts`, or `EXPO_PUBLIC_CLIMB_GENERATOR_MODELS_URL`), fetches that board's three files, checks each
+against its SHA-256, and keeps them under the app's documents folder, so later opens work offline. A new version in
+the manifest replaces the old files on the next open.
+
+The models are hosted on Hugging Face for now. To publish:
+
+```bash
+.venv/bin/python -I package_models.py --version <date> tension-9 tension-10 tension-11   # writes out/hub/
+.venv/bin/hf upload <user>/boardsesh-climbgen out/hub . --repo-type model
+```
+
+`package_models.py` keeps an existing `out/hub/manifest.json`, so packaging one board leaves the others listed.
+
 ## Train and export
 
 Everything lives in this folder; `.venv/`, `data/` and `out/` are gitignored.

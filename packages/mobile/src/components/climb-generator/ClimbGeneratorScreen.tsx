@@ -7,7 +7,12 @@ import { BoardImageNative } from '../BoardImageNative';
 import { BleLightbulbButton } from '../ble/BleLightbulbButton';
 import { trackBoardConnectTapped } from '../../lib/analytics-board-connect';
 import { getBoardRenderData } from '../../lib/board-details';
-import { climbGeneratorTags, generateClimbs, type GeneratedClimb } from '../../lib/climb-generator/generate';
+import {
+  generateClimbs,
+  isBundledClimbGenerator,
+  loadClimbGenerator,
+  type GeneratedClimb,
+} from '../../lib/climb-generator/generate';
 import { hapticLight } from '../../lib/haptics';
 import { useOptionalBluetoothContext } from '../../providers/bluetooth-provider';
 import { useTheme } from '../../providers/theme-provider';
@@ -70,7 +75,28 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
     () => new Set((renderData?.holdsData ?? []).map((hold) => hold.id)),
     [renderData],
   );
-  const tags = useMemo(() => (modelKey ? climbGeneratorTags(modelKey) : []), [modelKey]);
+  // The board's model: in the app for Kilter Original, downloaded once for the
+  // rest. `attempt` bumps to retry after a failed download.
+  const [modelState, setModelState] = useState<
+    { status: 'loading' } | { status: 'ready'; tags: string[] } | { status: 'error'; message: string }
+  >({ status: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!modelKey) return;
+    let current = true;
+    setModelState({ status: 'loading' });
+    loadClimbGenerator(modelKey).then(
+      (model) => current && setModelState({ status: 'ready', tags: model.meta.tags }),
+      (caught: unknown) =>
+        current &&
+        setModelState({ status: 'error', message: caught instanceof Error ? caught.message : String(caught) }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [modelKey, attempt]);
+  const tags = modelState.status === 'ready' ? modelState.tags : [];
+  const modelReady = modelState.status === 'ready';
 
   const toggleTag = useCallback((tag: string) => {
     hapticLight();
@@ -308,12 +334,30 @@ export function ClimbGeneratorScreen({ board }: { board: GeneratorBoard }) {
         {/* The one generate button, always under the board. Before the first run
             it is the screen's main action; after it, "Use this climb" is, and this
             reruns with the same grade, angle and keywords. */}
+        {modelState.status === 'loading' && modelKey && !isBundledClimbGenerator(modelKey) ? (
+          // i18n-ignore-next-line — experimental screen
+          <Text style={styles.caption}>
+            Getting this board's generator. Only the first time, about half a megabyte.
+          </Text>
+        ) : null}
+        {modelState.status === 'error' ? (
+          <>
+            <Text style={styles.error}>{modelState.message}</Text>
+            <Pressable onPress={() => setAttempt((count) => count + 1)} style={styles.secondaryButton}>
+              {/* i18n-ignore-next-line — experimental screen */}
+              <Text style={styles.secondaryText}>Try again</Text>
+            </Pressable>
+          </>
+        ) : null}
         <Pressable
           onPress={generate}
-          disabled={generating}
-          style={[selected ? styles.secondaryButton : styles.primaryButton, generating && styles.disabled]}
+          disabled={generating || !modelReady}
+          style={[
+            selected ? styles.secondaryButton : styles.primaryButton,
+            (generating || !modelReady) && styles.disabled,
+          ]}
         >
-          {generating ? (
+          {generating || modelState.status === 'loading' ? (
             <ActivityIndicator color={selected ? systemColors.label : '#FFFFFF'} />
           ) : (
             <Text style={selected ? styles.secondaryText : styles.primaryText}>
