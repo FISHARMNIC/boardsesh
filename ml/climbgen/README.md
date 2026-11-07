@@ -20,9 +20,19 @@ share 639 of 690 holes but bolt different holds into them.
 | `tension-9` | Tension Board 1 | 40k | 0.96 V | 82–86% / 79% |
 | `tension-10` | Tension Board 2 Mirror | 24k | 1.05 V | 84–86% / 79% |
 | `tension-11` | Tension Board 2 Spray | 19k | 1.08 V | 82% / 73% |
+| `kilter-8` | Kilter Homewall (10x12) | 24k | 0.91 V | 85% / 78% |
+| `moonboard-2` | MoonBoard 2016 | 50k | 1.09 V | 90% / 80% |
+| `moonboard-3` | MoonBoard 2024 | 18k | 1.07 V | 90–91% / 84% |
+| `moonboard-4` | MoonBoard Masters 2017 | 49k | 1.38 V | 88–89% / 90% |
+| `moonboard-5` | MoonBoard Masters 2019 | 33k | 1.24 V | 88% / 81% |
 
 The Tension generators use `--dim 64 --epochs 40` (smaller data) and keep the epoch with the best validation loss.
 Keyword tags are sparse on Tension (a couple of hundred climbs each), so they steer less there.
+
+MoonBoards number holds by grid cell on an 11x18 grid and have no foot-only role (`BOARD_MODELS` builds their
+placements from the grid, not the catalogue). Their graders give wider ranges (about 4.5–6 grades on Masters 2017,
+Masters 2019 and 2024) and read the easiest climbs up to a grade high, since most MoonBoard climbs sit at the bottom of
+the scale. `out/train-more.sh` trains Homewall and the four MoonBoards in a row.
 
 ## Data
 
@@ -50,7 +60,7 @@ Held-out test, flat prior: median-guess error 0.99 V. The average guess is withi
 
 ## Downloaded models
 
-Kilter Original ships inside the app. Every other board downloads its model the first time its generator opens
+Every board downloads its model the first time its generator opens
 (`packages/mobile/src/lib/climb-generator/remote-models.ts`): the app reads `manifest.json` from the models URL
 (`models/remote-config.ts`, or `EXPO_PUBLIC_CLIMB_GENERATOR_MODELS_URL`), fetches that board's three files, checks each
 against its SHA-256, and keeps them under the app's documents folder, so later opens work offline. A new version in
